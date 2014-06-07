@@ -19,6 +19,7 @@ import static info.archinnov.achilles.counter.AchillesCounter.CQLQueryType.DECR;
 import static info.archinnov.achilles.counter.AchillesCounter.CQLQueryType.DELETE;
 import static info.archinnov.achilles.counter.AchillesCounter.CQLQueryType.INCR;
 import static info.archinnov.achilles.counter.AchillesCounter.CQLQueryType.SELECT;
+import static info.archinnov.achilles.counter.AchillesCounter.CQL_COUNTER_VALUE;
 import static info.archinnov.achilles.counter.AchillesCounter.ClusteredCounterStatement.DELETE_ALL;
 import static info.archinnov.achilles.counter.AchillesCounter.ClusteredCounterStatement.SELECT_ALL;
 import static info.archinnov.achilles.internal.consistency.ConsistencyConverter.getCQLLevel;
@@ -26,18 +27,21 @@ import static info.archinnov.achilles.internal.persistence.operations.Collection
 import static info.archinnov.achilles.internal.persistence.operations.CollectionAndMapChangeType.SET_TO_LIST_AT_INDEX;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.RegularStatement;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.querybuilder.Update;
+import com.google.common.base.Function;
 import com.google.common.cache.Cache;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.counter.AchillesCounter.CQLQueryType;
 import info.archinnov.achilles.exception.AchillesException;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.consistency.ConsistencyOverrider;
 import info.archinnov.achilles.internal.context.facade.DaoOperations;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
@@ -57,25 +61,43 @@ import info.archinnov.achilles.type.Pair;
 public class DaoContext {
     private static final Logger log = LoggerFactory.getLogger(DaoContext.class);
 
-    private Cache<StatementCacheKey, PreparedStatement> dynamicPSCache;
+    protected  Cache<StatementCacheKey, PreparedStatement> dynamicPSCache;
 
-    private Map<Class<?>, PreparedStatement> selectPSs;
+    protected  Map<Class<?>, PreparedStatement> selectPSs;
 
-    private Map<Class<?>, Map<String, PreparedStatement>> removePSs;
+    protected  Map<Class<?>, Map<String, PreparedStatement>> removePSs;
 
-    private Map<CQLQueryType, PreparedStatement> counterQueryMap;
+    protected  Map<CQLQueryType, PreparedStatement> counterQueryMap;
 
-    private Map<Class<?>, Map<CQLQueryType, Map<String, PreparedStatement>>> clusteredCounterQueryMap;
+    protected  Map<Class<?>, Map<CQLQueryType, Map<String, PreparedStatement>>> clusteredCounterQueryMap;
 
-    private Session session;
+    protected  Session session;
 
-    private CacheManager cacheManager;
+    protected  CacheManager cacheManager;
 
-    private PreparedStatementBinder binder = new PreparedStatementBinder();
+    protected  PreparedStatementBinder binder = new PreparedStatementBinder();
 
-    private StatementGenerator statementGenerator = new StatementGenerator();
+    protected  StatementGenerator statementGenerator = new StatementGenerator();
 
-    private ConsistencyOverrider overrider = new ConsistencyOverrider();
+    protected  ConsistencyOverrider overrider = new ConsistencyOverrider();
+
+    protected  AsyncUtils asyncUtils = new AsyncUtils();
+
+    protected  ExecutorService executorService;
+
+
+    protected static final Function<ResultSet, Row> RESULTSET_TO_ROW = new Function<ResultSet, Row>() {
+        @Override
+        public Row apply(ResultSet resultSet) {
+            final List<Row> rows = resultSet.all();
+            if (rows.isEmpty()) {
+                return null;
+            } else {
+                return rows.get(0);
+            }
+        }
+    };
+
 
     public void pushInsertStatement(DaoOperations context, List<PropertyMeta> pms) {
         log.debug("Push insert statement for PersistenceContext '{}' and properties '{}'", context, pms);
@@ -114,8 +136,9 @@ public class DaoContext {
     public Row loadProperty(DaoOperations context, PropertyMeta pm) {
         log.debug("Load property '{}' for PersistenceContext '{}'", pm, context);
         PreparedStatement ps = cacheManager.getCacheForFieldSelect(session, dynamicPSCache, context, pm);
-        List<Row> rows = executeReadWithConsistency(context, ps);
-        return returnFirstRowOrNull(rows);
+        final ListenableFuture<ResultSet> resultSetFuture = executeReadWithConsistency(context, ps);
+        final ListenableFuture<Row> futureRows = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+        return asyncUtils.buildInterruptible(futureRows).getImmediately();
     }
 
     public void bindForRemoval(DaoOperations context, String tableName) {
@@ -141,26 +164,28 @@ public class DaoContext {
         context.pushCounterStatement(bsWrapper);
     }
 
-    public void incrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long increment, ConsistencyLevel consistencyLevel) {
+    public ListenableFuture<ResultSet> incrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long increment, ConsistencyLevel consistencyLevel) {
         log.debug("Increment immediately simple counter for PersistenceContext '{}' and value '{}'", context, increment);
         PreparedStatement ps = counterQueryMap.get(INCR);
         BoundStatementWrapper bsWrapper = binder.bindForSimpleCounterIncrementDecrement(context, ps, counterMeta, increment, consistencyLevel);
-        context.executeImmediate(bsWrapper);
+        return context.executeImmediate(bsWrapper);
     }
 
-    public void decrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long decrement, ConsistencyLevel consistencyLevel) {
+    public ListenableFuture<ResultSet> decrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long decrement, ConsistencyLevel consistencyLevel) {
         log.debug("Decrement immediately simple counter for PersistenceContext '{}' and value '{}'", context, decrement);
         PreparedStatement ps = counterQueryMap.get(DECR);
         BoundStatementWrapper bsWrapper = binder.bindForSimpleCounterIncrementDecrement(context, ps, counterMeta, decrement, consistencyLevel);
-        context.executeImmediate(bsWrapper);
+        return context.executeImmediate(bsWrapper);
     }
 
-    public Row getSimpleCounter(DaoOperations context, PropertyMeta counterMeta, ConsistencyLevel consistencyLevel) {
+    public Long getSimpleCounter(DaoOperations context, PropertyMeta counterMeta, ConsistencyLevel consistencyLevel) {
         log.debug("Get simple counter value for counterMeta '{}' PersistenceContext '{}' using Consistency level '{}'", counterMeta, context, consistencyLevel);
         PreparedStatement ps = counterQueryMap.get(SELECT);
         BoundStatementWrapper bsWrapper = binder.bindForSimpleCounterSelect(context, ps, counterMeta, consistencyLevel);
-        ResultSet resultSet = context.executeImmediate(bsWrapper);
-        return returnFirstRowOrNull(resultSet.all());
+        final ListenableFuture<ResultSet> resultSetFuture = context.executeImmediate(bsWrapper);
+        final ListenableFuture<Row> futureRow = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+        final Row row = asyncUtils.buildInterruptible(futureRow).getImmediately();
+        return rowToLongFunction(CQL_COUNTER_VALUE).apply(row);
     }
 
     public void bindForSimpleCounterDelete(DaoOperations context, PropertyMeta counterMeta) {
@@ -179,15 +204,14 @@ public class DaoContext {
         context.pushCounterStatement(bsWrapper);
     }
 
-    public Row getClusteredCounter(DaoOperations context) {
+    public ListenableFuture<Row> getClusteredCounter(DaoOperations context) {
         log.debug("Get clustered counter for PersistenceContext '{}'", context);
         EntityMeta entityMeta = context.getEntityMeta();
         PreparedStatement ps = clusteredCounterQueryMap.get(entityMeta.getEntityClass()).get(SELECT).get(SELECT_ALL.name());
         ConsistencyLevel consistencyLevel = overrider.getReadLevel(context);
         BoundStatementWrapper bsWrapper = binder.bindForClusteredCounterSelect(context, ps, consistencyLevel);
-        ResultSet resultSet = context.executeImmediate(bsWrapper);
-
-        return returnFirstRowOrNull(resultSet.all());
+        final ListenableFuture<ResultSet> resultSetFuture = context.executeImmediate(bsWrapper);
+        return asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
     }
 
     public Long getClusteredCounterColumn(DaoOperations context, PropertyMeta counterMeta) {
@@ -197,12 +221,11 @@ public class DaoContext {
         PreparedStatement ps = clusteredCounterQueryMap.get(entityMeta.getEntityClass()).get(SELECT).get(counterColumnName);
         ConsistencyLevel readLevel = overrider.getReadLevel(context, counterMeta);
         BoundStatementWrapper bsWrapper = binder.bindForClusteredCounterSelect(context, ps, readLevel);
-        Row row = context.executeImmediate(bsWrapper).one();
-        Long counterValue = null;
-        if (row != null && !row.isNull(counterColumnName)) {
-            counterValue = row.getLong(counterColumnName);
-        }
-        return counterValue;
+
+        final ListenableFuture<ResultSet> resultSetFuture = context.executeImmediate(bsWrapper);
+        final ListenableFuture<Row> futureRow = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+        final Row row = asyncUtils.buildInterruptible(futureRow).getImmediately();
+        return rowToLongFunction(counterColumnName).apply(row);
     }
 
     public void bindForClusteredCounterDelete(DaoOperations context) {
@@ -212,40 +235,44 @@ public class DaoContext {
         context.pushCounterStatement(bsWrapper);
     }
 
-    public Row loadEntity(DaoOperations context) {
+    public ListenableFuture<Row> loadEntity(DaoOperations context) {
         log.debug("Load entity for PersistenceContext '{}'", context);
 
         Class<?> entityClass = context.getEntityClass();
         PreparedStatement ps = selectPSs.get(entityClass);
 
-        List<Row> rows = executeReadWithConsistency(context, ps);
-        return returnFirstRowOrNull(rows);
+        final ListenableFuture<ResultSet> resultSetFuture = executeReadWithConsistency(context, ps);
+        return asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+
     }
 
-    private List<Row> executeReadWithConsistency(DaoOperations context, PreparedStatement ps) {
+    private ListenableFuture<ResultSet> executeReadWithConsistency(DaoOperations context, PreparedStatement ps) {
         ConsistencyLevel readLevel = overrider.getReadLevel(context);
         BoundStatementWrapper bsWrapper = binder.bindStatementWithOnlyPKInWhereClause(context, ps, readLevel);
-        return context.executeImmediate(bsWrapper).all();
+        return context.executeImmediate(bsWrapper);
     }
 
-    private Row returnFirstRowOrNull(List<Row> rows) {
-        if (rows.isEmpty()) {
-            return null;
-        } else {
-            return rows.get(0);
-        }
-    }
 
-    public ResultSet execute(AbstractStatementWrapper statementWrapper) {
-        return statementWrapper.execute(session);
+    public ListenableFuture<ResultSet> execute(AbstractStatementWrapper statementWrapper) {
+        return statementWrapper.executeAsync(session, executorService);
     }
 
     public PreparedStatement prepare(RegularStatement statement) {
         return session.prepare(statement.getQueryString());
     }
 
-    public void executeBatch(BatchStatement batch) {
-        session.execute(batch);
+
+    private Function<Row, Long> rowToLongFunction(final String counterColumnName) {
+        return new Function<Row, Long>() {
+            @Override
+            public Long apply(Row row) {
+                Long counterValue = null;
+                if (row != null && !row.isNull(counterColumnName)) {
+                    counterValue = row.getLong(counterColumnName);
+                }
+                return counterValue;
+            }
+        };
     }
 
     public Session getSession() {
@@ -279,5 +306,9 @@ public class DaoContext {
 
     void setCacheManager(CacheManager cacheManager) {
         this.cacheManager = cacheManager;
+    }
+
+    void setExecutorService(ExecutorService executorService) {
+        this.executorService = executorService;
     }
 }

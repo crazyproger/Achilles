@@ -16,7 +16,6 @@
 
 package info.archinnov.achilles.internal.context;
 
-import static info.archinnov.achilles.counter.AchillesCounter.CQL_COUNTER_VALUE;
 import static info.archinnov.achilles.type.ConsistencyLevel.LOCAL_QUORUM;
 import static info.archinnov.achilles.type.InsertStrategy.ALL_FIELDS;
 import static org.fest.assertions.api.Assertions.assertThat;
@@ -34,6 +33,7 @@ import org.mockito.Answers;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import com.datastax.driver.core.Row;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
 import info.archinnov.achilles.internal.proxy.dirtycheck.DirtyCheckChangeSet;
@@ -68,6 +68,9 @@ public class EntityFacadeTest {
     @Mock
     private DirtyCheckChangeSet changeSet;
 
+    @Mock
+    private ListenableFuture<Row> futureRow;
+
     private Long primaryKey = RandomUtils.nextLong();
 
     private CompleteBean entity = CompleteBeanTestBuilder.builder().id(primaryKey).buid();
@@ -84,10 +87,9 @@ public class EntityFacadeTest {
 
     @Test
     public void should_eager_load_entity() throws Exception {
-        Row row = mock(Row.class);
-        when(daoContext.loadEntity(context.daoFacade)).thenReturn(row);
+        when(daoContext.loadEntity(context.daoFacade)).thenReturn(futureRow);
 
-        assertThat(facade.loadEntity()).isSameAs(row);
+        assertThat(facade.loadEntity()).isSameAs(futureRow);
     }
 
     @Test
@@ -151,9 +153,7 @@ public class EntityFacadeTest {
     public void should_get_simple_counter() throws Exception {
         PropertyMeta counterMeta = new PropertyMeta();
 
-        Row row = mock(Row.class);
-        when(daoContext.getSimpleCounter(context.daoFacade, counterMeta, LOCAL_QUORUM)).thenReturn(row);
-        when(row.getLong(CQL_COUNTER_VALUE)).thenReturn(11L);
+        when(daoContext.getSimpleCounter(context.daoFacade, counterMeta, LOCAL_QUORUM)).thenReturn(11L);
 
         Long counterValue = facade.getSimpleCounter(counterMeta, LOCAL_QUORUM);
 

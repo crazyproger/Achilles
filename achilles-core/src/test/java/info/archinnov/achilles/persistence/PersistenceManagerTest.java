@@ -17,9 +17,12 @@ package info.archinnov.achilles.persistence;
 
 import static info.archinnov.achilles.type.ConsistencyLevel.EACH_QUORUM;
 import static info.archinnov.achilles.type.ConsistencyLevel.LOCAL_QUORUM;
+import static info.archinnov.achilles.type.OptionsBuilder.noOptions;
+import static info.archinnov.achilles.type.OptionsBuilder.withConsistency;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
+import static org.mockito.Mockito.inOrder;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -38,6 +41,7 @@ import org.junit.rules.ExpectedException;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
+import org.mockito.InOrder;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
@@ -46,6 +50,7 @@ import com.datastax.driver.core.Session;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.Sets;
+import info.archinnov.achilles.async.AchillesFuture;
 import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
 import info.archinnov.achilles.internal.context.PersistenceContext;
@@ -66,7 +71,6 @@ import info.archinnov.achilles.test.mapping.entity.CompleteBean;
 import info.archinnov.achilles.type.ConsistencyLevel;
 import info.archinnov.achilles.type.IndexCondition;
 import info.archinnov.achilles.type.Options;
-import info.archinnov.achilles.type.OptionsBuilder;
 
 @RunWith(MockitoJUnitRunner.class)
 public class PersistenceManagerTest {
@@ -125,6 +129,9 @@ public class PersistenceManagerTest {
     @Captor
     private ArgumentCaptor<Options> optionsCaptor;
 
+    @Mock
+    private AchillesFuture<CompleteBean> achillesFutureEntity;
+
     private PersistenceManager manager;
 
     private Long primaryKey = RandomUtils.nextLong();
@@ -140,49 +147,51 @@ public class PersistenceManagerTest {
 
         manager = new PersistenceManager(entityMetaMap, contextFactory, daoContext, configContext);
         manager = Mockito.spy(this.manager);
-        Whitebox.setInternalState(manager, EntityProxifier.class, proxifier);
-        Whitebox.setInternalState(manager, EntityValidator.class, entityValidator);
-        Whitebox.setInternalState(manager, OptionsValidator.class, optionsValidator);
-        Whitebox.setInternalState(manager, SliceQueryExecutor.class, sliceQueryExecutor);
-        Whitebox.setInternalState(manager, TypedQueryValidator.class, typedQueryValidator);
-        Whitebox.setInternalState(manager, PersistenceContextFactory.class, contextFactory);
+
+        manager.entityValidator = entityValidator;
+        manager.proxifier = proxifier;
+        manager.sliceQueryExecutor = sliceQueryExecutor;
+        manager.typedQueryValidator = typedQueryValidator;
+        manager.contextFactory = contextFactory;
+        manager.optionsValidator = optionsValidator;
 
         manager.setEntityMetaMap(entityMetaMap);
         entityMetaMap.put(CompleteBean.class, meta);
     }
 
     @Test
-    public void should_persist() throws Exception {
+    public void should_persist_async() throws Exception {
         // Given
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, entityFacade)).thenReturn(entity);
-        when(facade.persist(entity)).thenReturn(entity);
+        when(facade.persist(entity)).thenReturn(achillesFutureEntity);
 
         // When
-        CompleteBean actual = manager.persist(entity);
+        final AchillesFuture<CompleteBean> actual = manager.asyncPersist(entity);
 
         // Then
-        assertThat(actual).isSameAs(entity);
+        assertThat(actual).isSameAs(achillesFutureEntity);
         verify(proxifier).ensureNotProxy(entity);
         verify(entityValidator).validateEntity(entity, entityMetaMap);
+        verify(optionsValidator).validateOptionsForInsert(eq(entity), eq(entityMetaMap), optionsCaptor.capture());
+        assertThat(optionsCaptor.getValue()).isEqualTo(noOptions());
     }
 
     @Test
-    public void should_persist_with_options() throws Exception {
+    public void should_persist_async_with_options() throws Exception {
         // Given
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, entityFacade)).thenReturn(entity);
-        when(facade.persist(entity)).thenReturn(entity);
+        when(facade.persist(entity)).thenReturn(achillesFutureEntity);
 
         // When
-        CompleteBean actual = manager.persist(entity, OptionsBuilder.withConsistency(EACH_QUORUM).withTtl(150)
-                .withTimestamp(100L));
+        final AchillesFuture<CompleteBean> actual = manager.asyncPersist(entity, withConsistency(EACH_QUORUM).withTtl(150).withTimestamp(100L));
 
         // Then
-        Options options = optionsCaptor.getValue();
-        assertThat(actual).isSameAs(entity);
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
         verify(entityValidator).validateEntity(entity, entityMetaMap);
-        verify(optionsValidator).validateOptionsForInsert(entity, entityMetaMap, options);
+        verify(optionsValidator).validateOptionsForInsert(eq(entity), eq(entityMetaMap), optionsCaptor.capture());
         verify(proxifier).ensureNotProxy(entity);
-        verify(facade).persist(entity);
+        Options options = optionsCaptor.getValue();
 
         assertThat(options.getConsistencyLevel().get()).isEqualTo(EACH_QUORUM);
         assertThat(options.getTtl().get()).isEqualTo(150);
@@ -190,18 +199,23 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_update() throws Exception {
+    public void should_update_async() throws Exception {
         // Given
         when(proxifier.isProxy(entity)).thenReturn(true);
         when(proxifier.getRealObject(entity)).thenReturn(entity);
+        when(facade.update(entity)).thenReturn(achillesFutureEntity);
 
         // When
-        manager.update(entity);
+        final AchillesFuture<CompleteBean> actual = manager.asyncUpdate(entity);
 
         // Then
-        verify(proxifier).ensureProxy(entity);
-        verify(entityValidator).validateEntity(entity, entityMetaMap);
-        verify(facade).update(entity);
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
+        InOrder inOrder = Mockito.inOrder(proxifier, entityValidator, optionsValidator);
+
+        inOrder.verify(proxifier).ensureProxy(entity);
+        inOrder.verify(entityValidator).validateEntity(entity, entityMetaMap);
+        inOrder.verify(optionsValidator).validateOptionsForUpdate(eq(entity), eq(entityMetaMap), optionsCaptor.capture());
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().isPresent()).isFalse();
@@ -210,19 +224,21 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_update_with_options() throws Exception {
+    public void should_update_async_with_options() throws Exception {
         // Given
+        when(proxifier.isProxy(entity)).thenReturn(true);
         when(proxifier.getRealObject(entity)).thenReturn(entity);
+        when(facade.update(entity)).thenReturn(achillesFutureEntity);
 
         // When
-        manager.update(entity, OptionsBuilder.withConsistency(EACH_QUORUM).withTtl(150).withTimestamp(100L));
+        final AchillesFuture<CompleteBean> actual = manager.asyncUpdate(entity, withConsistency(EACH_QUORUM).withTtl(150).withTimestamp(100L));
 
         // Then
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
+        verify(optionsValidator).validateOptionsForUpdate(eq(entity), eq(entityMetaMap), optionsCaptor.capture());
+
         Options options = optionsCaptor.getValue();
-        verify(proxifier).ensureProxy(entity);
-        verify(entityValidator).validateEntity(entity, entityMetaMap);
-        verify(optionsValidator).validateOptionsForUpdate(entity, entityMetaMap, options);
-        verify(facade).update(entity);
 
         assertThat(options.getConsistencyLevel().get()).isEqualTo(EACH_QUORUM);
         assertThat(options.getTtl().get()).isEqualTo(150);
@@ -230,14 +246,17 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_remove() throws Exception {
+    public void should_remove_async() throws Exception {
         // Given
         when(proxifier.getRealObject(entity)).thenReturn(entity);
+        when(facade.<CompleteBean>remove()).thenReturn(achillesFutureEntity);
 
         // When
-        manager.remove(entity);
+        final AchillesFuture<CompleteBean> actual = manager.asyncRemove(entity);
 
         // Then
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
         verify(entityValidator).validateEntity(entity, entityMetaMap);
 
         Options options = optionsCaptor.getValue();
@@ -247,15 +266,16 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_remove_with_consistency() throws Exception {
+    public void should_remove_async_with_consistency() throws Exception {
         // Given
         when(proxifier.getRealObject(entity)).thenReturn(entity);
+        when(facade.<CompleteBean>remove()).thenReturn(achillesFutureEntity);
 
         // When
-        manager.remove(entity, OptionsBuilder.withConsistency(EACH_QUORUM));
+        final AchillesFuture<CompleteBean> actual = manager.asyncRemove(entity, withConsistency(EACH_QUORUM));
 
         // Then
-        verify(entityValidator).validateEntity(entity, entityMetaMap);
+        assertThat(actual).isSameAs(achillesFutureEntity);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().get()).isSameAs(EACH_QUORUM);
@@ -264,30 +284,32 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_remove_by_id() throws Exception {
+    public void should_remove_by_id_async() throws Exception {
         // When
-        when(contextFactory.newContext(CompleteBean.class, primaryKey, OptionsBuilder.noOptions())).thenReturn(context);
+        when(contextFactory.newContext(CompleteBean.class, primaryKey, noOptions())).thenReturn(context);
         when(facade.getIdMeta()).thenReturn(idMeta);
+        when(facade.<CompleteBean>remove()).thenReturn(achillesFutureEntity);
 
-        manager.removeById(CompleteBean.class, primaryKey);
+        final AchillesFuture<CompleteBean> actual = manager.asyncRemoveById(CompleteBean.class, primaryKey);
 
         // Then
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
         verify(entityValidator).validatePrimaryKey(idMeta, primaryKey);
-        verify(facade).remove();
     }
 
     @Test
-    public void should_remove_by_id_with_consistency() throws Exception {
-        // When
+    public void should_remove_by_async_id_with_consistency() throws Exception {
+        // Given
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-
         when(facade.getIdMeta()).thenReturn(idMeta);
+        when(facade.<CompleteBean>remove()).thenReturn(achillesFutureEntity);
 
-        manager.removeById(CompleteBean.class, primaryKey, LOCAL_QUORUM);
+        // When
+        final AchillesFuture<CompleteBean> actual = manager.asyncRemoveById(CompleteBean.class, primaryKey, withConsistency(LOCAL_QUORUM));
 
         // Then
-        verify(entityValidator).validatePrimaryKey(idMeta, primaryKey);
-        verify(facade).remove();
+        assertThat(actual).isSameAs(achillesFutureEntity);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().get()).isSameAs(LOCAL_QUORUM);
@@ -296,20 +318,22 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_find() throws Exception {
-        // When
+    public void should_find_async() throws Exception {
+        // Given
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.find(CompleteBean.class)).thenReturn(entity);
+        when(facade.find(CompleteBean.class)).thenReturn(achillesFutureEntity);
 
         PropertyMeta idMeta = new PropertyMeta();
         when(facade.getIdMeta()).thenReturn(idMeta);
         when(entityMetaMap.containsKey(CompleteBean.class)).thenReturn(true);
 
-        CompleteBean bean = manager.find(CompleteBean.class, primaryKey);
+        // When
+        final AchillesFuture<CompleteBean> actual = manager.asyncFind(CompleteBean.class, primaryKey);
 
         // Then
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
         verify(entityValidator).validatePrimaryKey(idMeta, primaryKey);
-        assertThat(bean).isSameAs(entity);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().isPresent()).isFalse();
@@ -318,18 +342,18 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_find_with_consistency() throws Exception {
-        // When
+    public void should_find_async_with_consistency() throws Exception {
+        // Given
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.find(CompleteBean.class)).thenReturn(entity);
+        when(facade.find(CompleteBean.class)).thenReturn(achillesFutureEntity);
         when(facade.getIdMeta()).thenReturn(idMeta);
         when(entityMetaMap.containsKey(CompleteBean.class)).thenReturn(true);
 
-        CompleteBean bean = manager.find(CompleteBean.class, primaryKey, EACH_QUORUM);
+        // When
+        final AchillesFuture<CompleteBean> actual = manager.asyncFind(CompleteBean.class, primaryKey, withConsistency(EACH_QUORUM));
 
         // Then
-        verify(entityValidator).validatePrimaryKey(idMeta, primaryKey);
-        assertThat(bean).isSameAs(entity);
+        assertThat(actual).isSameAs(achillesFutureEntity);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().get()).isSameAs(EACH_QUORUM);
@@ -338,18 +362,20 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_get_reference() throws Exception {
-        // When
+    public void should_get_proxy_async() throws Exception {
+        // Given
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.getProxy(CompleteBean.class)).thenReturn(entity);
+        when(facade.getProxy(CompleteBean.class)).thenReturn(achillesFutureEntity);
         when(facade.getIdMeta()).thenReturn(idMeta);
         when(entityMetaMap.containsKey(CompleteBean.class)).thenReturn(true);
 
-        CompleteBean bean = manager.getProxy(CompleteBean.class, primaryKey);
+        // When
+        final AchillesFuture<CompleteBean> actual = manager.asyncGetProxy(CompleteBean.class, primaryKey);
 
         // Then
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
         verify(entityValidator).validatePrimaryKey(idMeta, primaryKey);
-        assertThat(bean).isSameAs(entity);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().isPresent()).isFalse();
@@ -358,18 +384,18 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_get_reference_with_consistency() throws Exception {
-        // When
+    public void should_get_proxy_async_with_consistency() throws Exception {
+        // Given
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.getProxy(CompleteBean.class)).thenReturn(entity);
+        when(facade.getProxy(CompleteBean.class)).thenReturn(achillesFutureEntity);
         when(facade.getIdMeta()).thenReturn(idMeta);
         when(entityMetaMap.containsKey(CompleteBean.class)).thenReturn(true);
 
-        CompleteBean bean = manager.getProxy(CompleteBean.class, primaryKey, EACH_QUORUM);
+        // When
+        final AchillesFuture<CompleteBean> actual = manager.asyncGetProxy(CompleteBean.class, primaryKey, withConsistency(EACH_QUORUM));
 
         // Then
-        verify(entityValidator).validatePrimaryKey(idMeta, primaryKey);
-        assertThat(bean).isSameAs(entity);
+        assertThat(actual).isSameAs(achillesFutureEntity);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().get()).isSameAs(EACH_QUORUM);
@@ -378,17 +404,21 @@ public class PersistenceManagerTest {
     }
 
     @Test
-    public void should_refresh() throws Exception {
+    public void should_refresh_async() throws Exception {
         // Given
         when(proxifier.getRealObject(entity)).thenReturn(entity);
+        when(facade.refresh(entity)).thenReturn(achillesFutureEntity);
 
         // When
-        manager.refresh(entity);
+        final AchillesFuture<CompleteBean> actual = manager.asyncRefresh(entity);
 
         // Then
-        verify(entityValidator).validateEntity(entity, entityMetaMap);
-        verify(proxifier).ensureProxy(entity);
-        verify(facade).refresh(entity);
+        assertThat(actual).isSameAs(achillesFutureEntity);
+
+        InOrder inOrder = inOrder(proxifier, entityValidator);
+
+        inOrder.verify(proxifier).ensureProxy(entity);
+        inOrder.verify(entityValidator).validateEntity(entity, entityMetaMap);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().isPresent()).isFalse();
@@ -400,14 +430,13 @@ public class PersistenceManagerTest {
     public void should_refresh_with_consistency() throws Exception {
         // Given
         when(proxifier.getRealObject(entity)).thenReturn(entity);
+        when(facade.refresh(entity)).thenReturn(achillesFutureEntity);
 
         // When
-        manager.refresh(entity, EACH_QUORUM);
+        final AchillesFuture<CompleteBean> actual = manager.asyncRefresh(entity, withConsistency(EACH_QUORUM));
 
         // Then
-        verify(entityValidator).validateEntity(entity, entityMetaMap);
-        verify(proxifier).ensureProxy(entity);
-        verify(facade).refresh(entity);
+        assertThat(actual).isSameAs(achillesFutureEntity);
 
         Options options = optionsCaptor.getValue();
         assertThat(options.getConsistencyLevel().get()).isSameAs(EACH_QUORUM);

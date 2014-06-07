@@ -17,16 +17,12 @@
 package info.archinnov.achilles.internal.statement.wrapper;
 
 import static org.fest.assertions.api.Assertions.assertThat;
-import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.when;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ConsistencyLevel;
-import com.datastax.driver.core.PreparedStatement;
-import com.datastax.driver.core.Session;
 import com.google.common.base.Optional;
 import info.archinnov.achilles.listener.CASResultListener;
 import info.archinnov.achilles.test.mapping.entity.CompleteBean;
@@ -39,27 +35,9 @@ public class BoundStatementWrapperTest {
     @Mock
     private BoundStatement bs;
 
-    @Mock
-    private PreparedStatement ps;
-
-    @Mock
-    private Session session;
 
     private static final Optional<CASResultListener> NO_LISTENER = Optional.absent();
 
-    @Test
-    public void should_execute() throws Exception {
-        //Given
-        wrapper = new BoundStatementWrapper(CompleteBean.class, bs, new Object[] { 1 }, ConsistencyLevel.ALL, NO_LISTENER);
-        when(bs.preparedStatement()).thenReturn(ps);
-        when(ps.getQueryString()).thenReturn("SELECT");
-
-        //When
-        wrapper.execute(session);
-
-        //Then
-        verify(session).execute(bs);
-    }
 
     @Test
     public void should_get_bound_statement() throws Exception {

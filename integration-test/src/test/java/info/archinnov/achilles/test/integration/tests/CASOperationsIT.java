@@ -25,6 +25,8 @@ import static info.archinnov.achilles.type.Options.CASCondition;
 import static info.archinnov.achilles.type.OptionsBuilder.casResultListener;
 import static info.archinnov.achilles.type.OptionsBuilder.ifConditions;
 import static org.fest.assertions.api.Assertions.assertThat;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
@@ -70,6 +72,8 @@ public class CASOperationsIT {
         CASResultListener listener = new CASResultListener() {
             @Override
             public void onCASSuccess() {
+
+                System.out.println(Thread.currentThread().getId() + " *********** CAS Success");
                 casSuccess.compareAndSet(false, true);
             }
 
@@ -195,9 +199,13 @@ public class CASOperationsIT {
         entity.setId(primaryKey);
         entity.setAge(32L);
         entity.setName("John");
+        List<String> friends = new ArrayList<>();
+        friends.add("Paul");
+        entity.setFriends(friends);
 
         final CompleteBean managed = manager.persist(entity);
         managed.setName("Helen");
+        managed.getFriends().add("George");
 
         //When
         manager.update(managed, ifConditions(new CASCondition("age_in_years", 32L)));
@@ -391,4 +399,5 @@ public class CASOperationsIT {
         assertThat(casResult.operation()).isEqualTo(UPDATE);
         assertThat(casResult.currentValues()).isEqualTo(expectedCurrentValues);
     }
+
 }

@@ -43,7 +43,7 @@ public class ClusteredEntityWithReverseClusteringIT {
 	public void should_query_with_default_params() throws Exception {
 		long partitionKey = RandomUtils.nextLong();
 		List<ClusteredEntityWithReverseClustering> entities = manager
-				.sliceQuery(ClusteredEntityWithReverseClustering.class).partitionComponents(partitionKey).getFirst(5);
+				.sliceQuery(ClusteredEntityWithReverseClustering.class).partitionComponents(partitionKey).getFirstMatchingWithLimit(5);
 		assertThat(entities).isEmpty();
 
 		insertValues(partitionKey, 5);

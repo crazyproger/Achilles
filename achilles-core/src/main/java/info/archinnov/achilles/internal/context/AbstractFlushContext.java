@@ -15,94 +15,96 @@
  */
 package info.archinnov.achilles.internal.context;
 
-import static info.archinnov.achilles.internal.consistency.ConsistencyConverter.getCQLLevel;
-import info.archinnov.achilles.interceptor.Event;
-import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
-import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
-import info.archinnov.achilles.type.ConsistencyLevel;
-
+import static com.google.common.base.Optional.fromNullable;
 import java.util.ArrayList;
 import java.util.List;
-
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.ResultSet;
+import com.google.common.util.concurrent.ListenableFuture;
+import info.archinnov.achilles.interceptor.Event;
+import info.archinnov.achilles.internal.async.AsyncUtils;
+import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
+import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
+import info.archinnov.achilles.internal.statement.wrapper.BatchStatementWrapper;
+import info.archinnov.achilles.type.ConsistencyLevel;
 
 public abstract class AbstractFlushContext {
-	protected DaoContext daoContext;
+    protected AsyncUtils asyncUtils = new AsyncUtils();
+    protected DaoContext daoContext;
 
-	protected List<AbstractStatementWrapper> statementWrappers = new ArrayList<>();
-	protected List<AbstractStatementWrapper> counterStatementWrappers = new ArrayList<>();
+    protected List<AbstractStatementWrapper> statementWrappers = new ArrayList<>();
+    protected List<AbstractStatementWrapper> counterStatementWrappers = new ArrayList<>();
 
-	protected ConsistencyLevel consistencyLevel;
+    protected ConsistencyLevel consistencyLevel;
 
-	public AbstractFlushContext(DaoContext daoContext, ConsistencyLevel consistencyLevel) {
-		this.daoContext = daoContext;
-		this.consistencyLevel = consistencyLevel;
-	}
+    public AbstractFlushContext(DaoContext daoContext, ConsistencyLevel consistencyLevel) {
+        this.daoContext = daoContext;
+        this.consistencyLevel = consistencyLevel;
+    }
 
-	protected AbstractFlushContext(DaoContext daoContext, List<AbstractStatementWrapper> statementWrappers,
-			ConsistencyLevel consistencyLevel) {
-		this.statementWrappers = statementWrappers;
-		this.daoContext = daoContext;
-		this.consistencyLevel = consistencyLevel;
-	}
+    protected AbstractFlushContext(DaoContext daoContext, List<AbstractStatementWrapper> statementWrappers,
+            ConsistencyLevel consistencyLevel) {
+        this.statementWrappers = statementWrappers;
+        this.daoContext = daoContext;
+        this.consistencyLevel = consistencyLevel;
+    }
 
-	protected void executeBatch(BatchStatement.Type batchType, List<AbstractStatementWrapper> statementWrappers) {
-		if (statementWrappers.size() > 1) {
-			BatchStatement batch = new BatchStatement(batchType);
-			AbstractStatementWrapper.writeDMLStartBatch(batchType);
-			for (AbstractStatementWrapper statementWrapper : statementWrappers) {
-				batch.add(statementWrapper.getStatement());
-				statementWrapper.logDMLStatement("\t");
-			}
-			AbstractStatementWrapper.writeDMLEndBatch(batchType,consistencyLevel);
-			if (consistencyLevel != null) {
-				batch.setConsistencyLevel(getCQLLevel(consistencyLevel));
-			}
-			daoContext.executeBatch(batch);
-		} else if (statementWrappers.size() == 1) {
-			daoContext.execute(statementWrappers.get(0));
-		}
-	}
+    protected ListenableFuture<ResultSet> executeBatch(BatchStatement.Type batchType, List<AbstractStatementWrapper> statementWrappers) {
+        ListenableFuture<ResultSet> resultSetFuture = null;
+        final int size = statementWrappers.size();
+        if (size > 1) {
+            final BatchStatementWrapper batchStatementWrapper = new BatchStatementWrapper(batchType, statementWrappers, fromNullable(consistencyLevel));
+            resultSetFuture = daoContext.execute(batchStatementWrapper);
+        } else if (size == 1) {
+            AbstractStatementWrapper wrapper;
+            if (batchType == BatchStatement.Type.LOGGED) {
+                wrapper = new BatchStatementWrapper(batchType, statementWrappers, fromNullable(consistencyLevel));
+            } else {
+                wrapper = statementWrappers.get(0);
+            }
+            resultSetFuture = daoContext.execute(wrapper);
+        }
+        return resultSetFuture;
+    }
 
-	public void pushStatement(AbstractStatementWrapper statementWrapper) {
-		statementWrappers.add(statementWrapper);
-	}
+    public void pushStatement(AbstractStatementWrapper statementWrapper) {
+        statementWrappers.add(statementWrapper);
+    }
 
-	public void pushCounterStatement(AbstractStatementWrapper statementWrapper) {
-		counterStatementWrappers.add(statementWrapper);
-	}
+    public void pushCounterStatement(AbstractStatementWrapper statementWrapper) {
+        counterStatementWrappers.add(statementWrapper);
+    }
 
-	public ResultSet executeImmediate(AbstractStatementWrapper statementWrapper) {
-		return daoContext.execute(statementWrapper);
-	}
+    public ListenableFuture<ResultSet> execute(AbstractStatementWrapper statementWrapper) {
+        return daoContext.execute(statementWrapper);
+    }
 
-	public void setConsistencyLevel(ConsistencyLevel consistencyLevel) {
-		this.consistencyLevel = consistencyLevel;
-	}
+    public void setConsistencyLevel(ConsistencyLevel consistencyLevel) {
+        this.consistencyLevel = consistencyLevel;
+    }
 
-	public ConsistencyLevel getConsistencyLevel() {
-		return consistencyLevel;
-	}
+    public ConsistencyLevel getConsistencyLevel() {
+        return consistencyLevel;
+    }
 
-	public abstract void startBatch();
+    public abstract void startBatch();
 
-	public abstract void flush();
+    public abstract ListenableFuture<List<ResultSet>> flush();
 
-	public abstract void endBatch();
+    public abstract ListenableFuture<List<ResultSet>> flushBatch();
 
-	public abstract FlushType type();
+    public abstract FlushType type();
 
-	public abstract AbstractFlushContext duplicate();
+    public abstract AbstractFlushContext duplicate();
 
-	public abstract void triggerInterceptor(EntityMeta meta, Object entity, Event event);
+    public abstract void triggerInterceptor(EntityMeta meta, Object entity, Event event);
 
-	public static enum FlushType {
-		BATCH, IMMEDIATE;
-	}
+    public static enum FlushType {
+        BATCH, IMMEDIATE;
+    }
 
-	@Override
-	public String toString() {
-		return type().toString();
-	}
+    @Override
+    public String toString() {
+        return type().toString();
+    }
 }

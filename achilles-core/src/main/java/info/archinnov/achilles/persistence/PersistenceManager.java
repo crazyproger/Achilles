@@ -29,6 +29,7 @@ import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.querybuilder.Select;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import info.archinnov.achilles.async.AchillesFuture;
 import info.archinnov.achilles.exception.AchillesStaleObjectStateException;
 import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
@@ -56,11 +57,11 @@ public class PersistenceManager {
     protected PersistenceContextFactory contextFactory;
 
     protected EntityProxifier proxifier = new EntityProxifier();
-    private EntityValidator entityValidator = new EntityValidator();
-    private OptionsValidator optionsValidator = new OptionsValidator();
-    private TypedQueryValidator typedQueryValidator = new TypedQueryValidator();
+    protected EntityValidator entityValidator = new EntityValidator();
+    protected OptionsValidator optionsValidator = new OptionsValidator();
+    protected TypedQueryValidator typedQueryValidator = new TypedQueryValidator();
 
-    private SliceQueryExecutor sliceQueryExecutor;
+    protected SliceQueryExecutor sliceQueryExecutor;
 
     protected DaoContext daoContext;
 
@@ -78,11 +79,23 @@ public class PersistenceManager {
      *
      * @param entity
      *            Entity to be persisted
-     * @return proxified entity
+     * @return T
      */
     public <T> T persist(T entity) {
         log.debug("Persisting entity '{}'", entity);
         return persist(entity, noOptions());
+    }
+
+    /**
+     * Persist an entity asynchronously.
+     *
+     * @param entity
+     *            Entity to be persisted
+     * @return AchillesFuture<T>
+     */
+    public <T> AchillesFuture<T> asyncPersist(T entity) {
+        log.debug("Persisting entity '{}' asynchronously", entity);
+        return asyncPersist(entity, noOptions());
     }
 
     /**
@@ -92,19 +105,32 @@ public class PersistenceManager {
      *            Entity to be persisted
      * @param options
      *            options for consistency level, ttl and timestamp
-     * @return proxified entity
+     * @return T
      */
     public <T> T persist(final T entity, Options options) {
-        if (log.isDebugEnabled())
-            log.debug("Persisting entity '{}' with options {} ", entity, options);
+        log.debug("Persisting entity '{}' with options {}", entity, options);
+        return this.asyncPersist(entity, options).getImmediately();
+    }
+
+    /**
+     * Persist an entity with the given options, asynchronously.
+     *
+     * @param entity
+     *            Entity to be persisted
+     * @param options
+     *            options for consistency level, ttl and timestamp
+     * @return AchillesFuture<T>
+     */
+    public <T> AchillesFuture<T> asyncPersist(final T entity, Options options) {
+        log.debug("Persisting entity '{}' asynchronously with options {} ", entity, options);
 
         entityValidator.validateEntity(entity, entityMetaMap);
-
         optionsValidator.validateOptionsForInsert(entity, entityMetaMap, options);
         proxifier.ensureNotProxy(entity);
         PersistenceManagerOperations context = initPersistenceContext(entity, options);
         return context.persist(entity);
     }
+
 
     /**
      * Update a "managed" entity
@@ -113,9 +139,21 @@ public class PersistenceManager {
      *            Managed entity to be updated
      */
     public void update(Object entity) {
-        if (log.isDebugEnabled())
-            log.debug("Updating entity '{}'", proxifier.getRealObject(entity));
-        update(entity, noOptions());
+        log.debug("Updating entity '{}'", proxifier.getRealObject(entity));
+        this.asyncUpdate(entity, noOptions()).getImmediately();
+    }
+
+    /**
+     * Update a "managed" entity asynchronously
+     *
+     * @param entity
+     *            Managed entity to be updated
+     *
+     * @return AchillesFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncUpdate(T entity) {
+        log.debug("Updating entity '{}' asynchronously", proxifier.getRealObject(entity));
+        return asyncUpdate(entity, noOptions());
     }
 
     /**
@@ -127,15 +165,28 @@ public class PersistenceManager {
      *            options for consistency level, ttl and timestamp
      */
     public void update(Object entity, Options options) {
+        log.debug("Updating entity '{}' with options {}", proxifier.getRealObject(entity), options);
+        asyncUpdate(entity, options).getImmediately();
+    }
+
+    /**
+     * Update a "managed" entity asynchronously
+     *
+     * @param entity
+     *            Managed entity to be updated
+     * @param options
+     *            options for consistency level, ttl and timestamp
+     *
+     * @return AchillesFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncUpdate(T entity, Options options) {
         proxifier.ensureProxy(entity);
         Object realObject = proxifier.getRealObject(entity);
-        if (log.isDebugEnabled()) {
-            log.debug("Updating entity '{}' with options {} ", realObject, options);
-        }
+        log.debug("Updating entity '{}' asynchronously with options {} ", realObject, options);
         entityValidator.validateEntity(realObject, entityMetaMap);
         optionsValidator.validateOptionsForUpdate(entity, entityMetaMap, options);
         PersistenceManagerOperations context = initPersistenceContext(realObject, options);
-        context.update(entity);
+        return context.update(entity);
     }
 
     /**
@@ -145,10 +196,56 @@ public class PersistenceManager {
      *            Entity to be removed
      */
     public void remove(Object entity) {
-        if (log.isDebugEnabled())
-            log.debug("Removing entity '{}'", proxifier.getRealObject(entity));
-        remove(entity, noOptions());
+        log.debug("Removing entity '{}'", proxifier.getRealObject(entity));
+        asyncRemove(entity, noOptions()).getImmediately();
     }
+
+    /**
+     * Remove an entity asynchronously.
+     *
+     * @param entity
+     *            Entity to be removed
+     *
+     * @return AchillesFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncRemove(T entity) {
+        log.debug("Removing entity '{}' asynchronously", proxifier.getRealObject(entity));
+        return asyncRemove(entity, noOptions());
+    }
+
+
+    /**
+     * Remove an entity with the given options.
+     *
+     * @param entity
+     *            Entity to be removed
+     * @param options
+     *            options for consistency level and timestamp
+     */
+    public void remove(final Object entity, Options options) {
+        log.debug("Removing entity '{}' with options {}", proxifier.getRealObject(entity), options);
+        asyncRemove(entity, options).getImmediately();
+    }
+
+    /**
+     * Remove an entity with the given options, asynchronously.
+     *
+     * @param entity
+     *            Entity to be removed
+     * @param options
+     *            options for consistency level and timestamp
+     *
+     * @return AchillesFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncRemove(final T entity, Options options) {
+        Object realObject = proxifier.getRealObject(entity);
+        log.debug("Removing entity '{}' asynchronously with options {}", realObject, options);
+
+        entityValidator.validateEntity(realObject, entityMetaMap);
+        PersistenceManagerOperations context = initPersistenceContext(realObject, options);
+        return context.remove();
+    }
+
 
     /**
      * Remove an entity by its id.
@@ -160,33 +257,28 @@ public class PersistenceManager {
      *            Primary key
      */
     public void removeById(Class<?> entityClass, Object primaryKey) {
-        Validator.validateNotNull(entityClass, "The entity class should not be null for removal by id");
-        Validator.validateNotNull(primaryKey, "The primary key should not be null for removal by id");
-        if (log.isDebugEnabled()) {
-            log.debug("Removing entity of type '{}' by its id '{}'", entityClass, primaryKey);
-        }
-        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, noOptions());
-        entityValidator.validatePrimaryKey(context.getIdMeta(), primaryKey);
-        context.remove();
+        log.debug("Removing entity of type '{}' by its id '{}'", entityClass, primaryKey);
+        asyncRemoveById(entityClass, primaryKey).getImmediately();
     }
 
     /**
-     * Remove an entity with the given Consistency Level for write.
+     * Remove an entity by its id, asynchronously.
      *
-     * @param entity
-     *            Entity to be removed
-     * @param options
-     *            options for consistency level and timestamp
+     * @param entityClass
+     *            Entity class
+     *
+     * @param primaryKey
+     *            Primary key
+     *
+     * @return AchillesFuture<Empty>
      */
-    public void remove(final Object entity, Options options) {
-        Object realObject = proxifier.getRealObject(entity);
-        if (log.isDebugEnabled()) {
-            log.debug("Removing entity '{}' with options {}", realObject, options);
-        }
-
-        entityValidator.validateEntity(realObject, entityMetaMap);
-        PersistenceManagerOperations context = initPersistenceContext(realObject, options);
-        context.remove();
+    public <T> AchillesFuture<T> asyncRemoveById(Class<T> entityClass, Object primaryKey) {
+        log.debug("Removing entity of type '{}' asynchronously by its id '{}'", entityClass, primaryKey);
+        Validator.validateNotNull(entityClass, "The entity class should not be null for removal by id");
+        Validator.validateNotNull(primaryKey, "The primary key should not be null for removal by id");
+        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, noOptions());
+        entityValidator.validatePrimaryKey(context.getIdMeta(), primaryKey);
+        return context.remove();
     }
 
     /**
@@ -199,15 +291,31 @@ public class PersistenceManager {
      *            Primary key
      */
     public void removeById(Class<?> entityClass, Object primaryKey, ConsistencyLevel writeLevel) {
+        log.debug("Removing entity of type '{}' by its id '{}' with consistency level '{}'", entityClass, primaryKey, writeLevel);
+        asyncRemoveById(entityClass, primaryKey, withConsistency(writeLevel)).getImmediately();
+    }
+
+    /**
+     * Remove an entity by its id with the given Consistency Level for write, asynchronously.
+     *
+     * @param entityClass
+     *            Entity class
+     *
+     * @param primaryKey
+     *            Primary key
+     *
+     * @return AchillesFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncRemoveById(Class<T> entityClass, Object primaryKey, Options options) {
+        log.debug("Removing entity of type '{}' asynchronously by its id '{}' with options '{}'", entityClass, primaryKey, options);
         Validator.validateNotNull(entityClass, "The entity class should not be null for removal by id");
         Validator.validateNotNull(primaryKey, "The primary key should not be null for removal by id");
-        if (log.isDebugEnabled())
-            log.debug("Removing entity of type '{}' by its id '{}'", entityClass, primaryKey);
 
-        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, withConsistency(writeLevel));
+        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, options);
         entityValidator.validatePrimaryKey(context.getIdMeta(), primaryKey);
-        context.remove();
+        return context.remove();
     }
+
 
     /**
      * Find an entity.
@@ -216,11 +324,27 @@ public class PersistenceManager {
      *            Entity type
      * @param primaryKey
      *            Primary key (Cassandra row key) of the entity to load
+     *
+     * @return T
      */
     public <T> T find(Class<T> entityClass, Object primaryKey) {
-        log.debug("Find entity class '{}' with primary key {}", entityClass, primaryKey);
-        T entity = find(entityClass, primaryKey, null);
-        return entity;
+        log.debug("Find entity class '{}' with primary key '{}'", entityClass, primaryKey);
+        return asyncFind(entityClass, primaryKey, noOptions()).getImmediately();
+    }
+
+    /**
+     * Find an entity, asynchronously.
+     *
+     * @param entityClass
+     *            Entity type
+     * @param primaryKey
+     *            Primary key (Cassandra row key) of the entity to load
+     *
+     * @return AchillesFuture<T>
+     */
+    public <T> AchillesFuture<T> asyncFind(Class<T> entityClass, Object primaryKey) {
+        log.debug("Find entity class '{}' with primary key '{}'", entityClass, primaryKey);
+        return asyncFind(entityClass, primaryKey, noOptions());
     }
 
     /**
@@ -232,17 +356,33 @@ public class PersistenceManager {
      *            Primary key (Cassandra row key) of the entity to load
      * @param readLevel
      *            Consistency Level for read
+     *
+     * @return T
      */
     public <T> T find(final Class<T> entityClass, final Object primaryKey, ConsistencyLevel readLevel) {
-        log.debug("Find entity class '{}' with primary key {} and read consistency level {}", entityClass, primaryKey,
-                readLevel);
+        log.debug("Find entity class '{}' with primary key '{}' and consistency level '{}'", entityClass, primaryKey, readLevel);
+        return asyncFind(entityClass, primaryKey, withConsistency(readLevel)).getImmediately();
+    }
+
+    /**
+     * Find an entity with the given Consistency Level for read, asynchronously
+     *
+     * @param entityClass
+     *            Entity type
+     * @param primaryKey
+     *            Primary key (Cassandra row key) of the entity to load
+     * @param options
+     *            Options
+     *
+     * @return AchillesFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncFind(final Class<T> entityClass, final Object primaryKey, Options options) {
+        log.debug("Find entity class '{}' with primary key '{}' and options '{}'", entityClass, primaryKey, options);
         Validator.validateNotNull(entityClass, "Entity class should not be null for find by id");
         Validator.validateNotNull(primaryKey, "Entity primaryKey should not be null for find by id");
-        Validator.validateTrue(entityMetaMap.containsKey(entityClass),
-                "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
-        Validator.validateTrue(entityMetaMap.containsKey(entityClass),
-                "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
-        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, withConsistency(readLevel));
+        Validator.validateTrue(entityMetaMap.containsKey(entityClass), "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
+        Validator.validateTrue(entityMetaMap.containsKey(entityClass), "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
+        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, options);
         entityValidator.validatePrimaryKey(context.getIdMeta(), primaryKey);
         return context.find(entityClass);
     }
@@ -257,12 +397,12 @@ public class PersistenceManager {
      *            Entity type
      * @param primaryKey
      *            Primary key (Cassandra row key) of the entity to initialize
+     *
+     * @return T
      */
     public <T> T getProxy(Class<T> entityClass, Object primaryKey) {
-        if (log.isDebugEnabled())
-            log.debug("Get reference for entity class '{}' with primary key {}", entityClass, primaryKey);
-
-        return getProxy(entityClass, primaryKey, null);
+        log.debug("Get reference for entity class '{}' with primary key {}", entityClass, primaryKey);
+        return asyncGetProxy(entityClass, primaryKey, noOptions()).getImmediately();
     }
 
     /**
@@ -275,26 +415,61 @@ public class PersistenceManager {
      *            Entity type
      * @param primaryKey
      *            Primary key (Cassandra row key) of the entity to initialize
-     * @param readLevel
-     *            Consistency Level for read
+     *
+     * @return AchillesFuture<T>
      */
-    public <T> T getProxy(final Class<T> entityClass, final Object primaryKey, ConsistencyLevel readLevel) {
-        if (log.isDebugEnabled())
-            log.debug("Get reference for entity class '{}' with primary key {} and read consistency level {}",
-                    entityClass, primaryKey, readLevel);
+    public <T> AchillesFuture<T> asyncGetProxy(Class<T> entityClass, Object primaryKey) {
+        log.debug("Get reference asynchronously for entity class '{}' with primary key {}", entityClass, primaryKey);
+        return asyncGetProxy(entityClass, primaryKey, noOptions());
+    }
+
+
+    /**
+     * Create a proxy for the entity. An new empty entity will be created,
+     * populated with the provided primary key and then proxified. This method
+     * never returns null Use this method to perform direct update without
+     * read-before-write
+     *
+     * @param entityClass
+     *            Entity type
+     * @param primaryKey
+     *            Primary key (Cassandra row key) of the entity to initialize
+     * @param options
+     *            Options
+     *
+     * @return T
+     */
+    public <T> T getProxy(final Class<T> entityClass, final Object primaryKey, Options options) {
+        log.debug("Get reference for entity class '{}' with primary key {} and options {}", entityClass, primaryKey, options);
+        return asyncGetProxy(entityClass, primaryKey, options).getImmediately();
+    }
+
+    /**
+     * Create a proxy for the entity. An new empty entity will be created,
+     * populated with the provided primary key and then proxified. This method
+     * never returns null Use this method to perform direct update without
+     * read-before-write
+     *
+     * @param entityClass
+     *            Entity type
+     * @param primaryKey
+     *            Primary key (Cassandra row key) of the entity to initialize
+     * @param options
+     *            Options
+     *
+     * @return AchillesFuture<T>
+     */
+    public <T> AchillesFuture<T> asyncGetProxy(final Class<T> entityClass, final Object primaryKey, Options options) {
+        log.debug("Get reference asynchronously for entity class '{}' with primary key {} and options {}", entityClass, primaryKey, options);
 
         Validator.validateNotNull(entityClass, "Entity class should not be null for get reference");
         Validator.validateNotNull(primaryKey, "Entity primaryKey should not be null for get reference");
-        Validator.validateTrue(entityMetaMap.containsKey(entityClass),
-                "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
+        Validator.validateTrue(entityMetaMap.containsKey(entityClass), "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
+        Validator.validateTrue(entityMetaMap.containsKey(entityClass), "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
 
-        Validator.validateTrue(entityMetaMap.containsKey(entityClass),
-                "The entity class '%s' is not managed by Achilles", entityClass.getCanonicalName());
-
-        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, withConsistency(readLevel));
+        PersistenceManagerOperations context = initPersistenceContext(entityClass, primaryKey, options);
         entityValidator.validatePrimaryKey(context.getIdMeta(), primaryKey);
-        T entity = context.getProxy(entityClass);
-        return entity;
+        return context.getProxy(entityClass);
     }
 
     /**
@@ -304,9 +479,22 @@ public class PersistenceManager {
      *            Entity to be refreshed
      */
     public void refresh(Object entity) throws AchillesStaleObjectStateException {
-        if (log.isDebugEnabled())
-            log.debug("Refreshing entity '{}'", proxifier.removeProxy(entity));
-        refresh(entity, null);
+        log.debug("Refreshing entity '{}'", proxifier.removeProxy(entity));
+        asyncRefresh(entity, noOptions()).getImmediately();
+    }
+
+
+    /**
+     * Refresh an entity asynchronously.
+     *
+     * @param entity
+     *            Entity to be refreshed
+     *
+     * @return AchillesFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncRefresh(T entity) throws AchillesStaleObjectStateException {
+        log.debug("Refreshing entity '{}' asynchronously", proxifier.removeProxy(entity));
+        return asyncRefresh(entity, noOptions());
     }
 
     /**
@@ -318,14 +506,28 @@ public class PersistenceManager {
      *            Consistency Level for read
      */
     public void refresh(final Object entity, ConsistencyLevel readLevel) throws AchillesStaleObjectStateException {
-        if (log.isDebugEnabled())
-            log.debug("Refreshing entity '{}' with read consistency level {}", proxifier.removeProxy(entity), readLevel);
+        log.debug("Refreshing entity '{}' with consistency level '{}'", proxifier.removeProxy(entity));
+        asyncRefresh(entity, withConsistency(readLevel)).getImmediately();
+    }
+
+    /**
+     * Refresh an entity with the given Consistency Level for read, asynchronously.
+     *
+     * @param entity
+     *            Entity to be refreshed
+     * @param options
+     *            Options
+     *
+     * @return ListenableFuture<Empty>
+     */
+    public <T> AchillesFuture<T> asyncRefresh(final T entity, Options options) throws AchillesStaleObjectStateException {
+        log.debug("Refreshing entity '{}' asynchronously with options '{}'", proxifier.removeProxy(entity), options);
 
         proxifier.ensureProxy(entity);
         Object realObject = proxifier.getRealObject(entity);
         entityValidator.validateEntity(realObject, entityMetaMap);
-        PersistenceManagerOperations context = initPersistenceContext(realObject, withConsistency(readLevel));
-        context.refresh(entity);
+        PersistenceManagerOperations context = initPersistenceContext(realObject, options);
+        return context.refresh(entity);
     }
 
     /**
@@ -337,10 +539,7 @@ public class PersistenceManager {
      *
      */
     public <T> T initialize(final T entity) {
-        log.debug("Force lazy fields initialization for entity {}", entity);
-        if (log.isDebugEnabled()) {
-            log.debug("Force lazy fields initialization for entity {}", proxifier.removeProxy(entity));
-        }
+        log.debug("Force lazy fields initialization for entity {}", proxifier.removeProxy(entity));
         proxifier.ensureProxy(entity);
         T realObject = proxifier.getRealObject(entity);
         PersistenceManagerOperations context = initPersistenceContext(realObject, noOptions());
@@ -454,9 +653,7 @@ public class PersistenceManager {
     public <T> SliceQueryBuilder<T> sliceQuery(Class<T> entityClass) {
         log.debug("Execute slice query for entity class {}", entityClass);
         EntityMeta meta = entityMetaMap.get(entityClass);
-        Validator.validateTrue(meta.isClusteredEntity(),
-                "Cannot perform slice query on entity type '%s' because it is " + "not a clustered entity",
-                meta.getClassName());
+        Validator.validateTrue(meta.isClusteredEntity(), "Cannot perform slice query on entity type '%s' because it is " + "not a clustered entity", meta.getClassName());
         return new SliceQueryBuilder<>(sliceQueryExecutor, entityClass, meta);
     }
 
@@ -496,7 +693,7 @@ public class PersistenceManager {
     public NativeQuery nativeQuery(String queryString, Options options, Object... boundValues) {
         log.debug("Execute native query {}", queryString);
         Validator.validateNotBlank(queryString, "The query string for native query should not be blank");
-        return new NativeQuery(daoContext, queryString, options, boundValues);
+        return new NativeQuery(daoContext, configContext, queryString, options, boundValues);
     }
 
     /**
@@ -525,14 +722,11 @@ public class PersistenceManager {
         log.debug("Execute typed query for entity class {}", entityClass);
         Validator.validateNotNull(entityClass, "The entityClass for typed query should not be null");
         Validator.validateNotBlank(queryString, "The query string for typed query should not be blank");
-        Validator.validateTrue(entityMetaMap.containsKey(entityClass),
-                "Cannot perform typed query because the entityClass '%s' is not managed by Achilles",
-                entityClass.getCanonicalName());
+        Validator.validateTrue(entityMetaMap.containsKey(entityClass), "Cannot perform typed query because the entityClass '%s' is not managed by Achilles", entityClass.getCanonicalName());
 
         EntityMeta meta = entityMetaMap.get(entityClass);
         typedQueryValidator.validateTypedQuery(entityClass, queryString, meta);
-        return new TypedQuery<>(entityClass, daoContext, queryString, meta, contextFactory, true,
-                normalizeQuery, boundValues);
+        return new TypedQuery<>(entityClass, daoContext, configContext, queryString, meta, contextFactory, true, normalizeQuery, boundValues);
     }
 
     /**
@@ -585,14 +779,11 @@ public class PersistenceManager {
         log.debug("Execute raw typed query for entity class {}", entityClass);
         Validator.validateNotNull(entityClass, "The entityClass for typed query should not be null");
         Validator.validateNotBlank(queryString, "The query string for typed query should not be blank");
-        Validator.validateTrue(entityMetaMap.containsKey(entityClass),
-                "Cannot perform typed query because the entityClass '%s' is not managed by Achilles",
-                entityClass.getCanonicalName());
+        Validator.validateTrue(entityMetaMap.containsKey(entityClass), "Cannot perform typed query because the entityClass '%s' is not managed by Achilles", entityClass.getCanonicalName());
 
         EntityMeta meta = entityMetaMap.get(entityClass);
         typedQueryValidator.validateRawTypedQuery(entityClass, queryString, meta);
-        return new TypedQuery<>(entityClass, daoContext, queryString, meta, contextFactory, false, true,
-                boundValues);
+        return new TypedQuery<>(entityClass, daoContext, configContext, queryString, meta, contextFactory, false, true, boundValues);
     }
 
     /**

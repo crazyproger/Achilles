@@ -18,18 +18,16 @@ package info.archinnov.achilles.query.slice;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
-
 import java.util.Arrays;
 import java.util.List;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
-
+import com.google.common.util.concurrent.FutureCallback;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
 import info.archinnov.achilles.internal.metadata.transcoding.DataTranscoder;
-import info.archinnov.achilles.query.slice.SliceQuery;
 import info.archinnov.achilles.test.mapping.entity.ClusteredEntity;
 import info.archinnov.achilles.type.BoundingMode;
 import info.archinnov.achilles.type.OrderingMode;
@@ -37,48 +35,50 @@ import info.archinnov.achilles.type.OrderingMode;
 @RunWith(MockitoJUnitRunner.class)
 public class SliceQueryTest {
 
-	@Mock
-	private DataTranscoder transcoder;
+    @Mock
+    private DataTranscoder transcoder;
 
-	@Test
-	public void should_build_new_slice_query() throws Exception {
-		PropertyMeta idMeta = mock(PropertyMeta.class);
+    private FutureCallback<Object>[] asyncListeners = new FutureCallback[] { };
 
-		EntityMeta meta = new EntityMeta();
-		meta.setIdMeta(idMeta);
+    @Test
+    public void should_build_new_slice_query() throws Exception {
+        PropertyMeta idMeta = mock(PropertyMeta.class);
 
-		List<Object> fromComponents = Arrays.<Object> asList(11L, "a");
-		List<Object> toComponents = Arrays.<Object> asList(11L, "b");
-		when(idMeta.encodeToComponents(fromComponents)).thenReturn(fromComponents);
-		when(idMeta.encodeToComponents(toComponents)).thenReturn(toComponents);
+        EntityMeta meta = new EntityMeta();
+        meta.setIdMeta(idMeta);
 
-		SliceQuery<ClusteredEntity> sliceQuery = new SliceQuery<ClusteredEntity>(ClusteredEntity.class, meta,
-				Arrays.<Object> asList(11L), Arrays.<Object> asList("a"), Arrays.<Object> asList("b"),
-				OrderingMode.ASCENDING, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 99, false);
+        List<Object> fromComponents = Arrays.<Object>asList(11L, "a");
+        List<Object> toComponents = Arrays.<Object>asList(11L, "b");
+        when(idMeta.encodeToComponents(fromComponents)).thenReturn(fromComponents);
+        when(idMeta.encodeToComponents(toComponents)).thenReturn(toComponents);
 
-		assertThat(sliceQuery.getEntityClass()).isSameAs(ClusteredEntity.class);
-		assertThat(sliceQuery.getBatchSize()).isEqualTo(99);
-		assertThat(sliceQuery.getBounding()).isEqualTo(BoundingMode.INCLUSIVE_BOUNDS);
-		assertThat(sliceQuery.getClusteringsFrom()).containsExactly(11L, "a");
-		assertThat(sliceQuery.getClusteringsTo()).containsExactly(11L, "b");
-		assertThat(sliceQuery.getConsistencyLevel()).isNull();
-		assertThat(sliceQuery.getLimit()).isEqualTo(100);
-		assertThat(sliceQuery.getMeta()).isSameAs(meta);
-		assertThat(sliceQuery.getOrdering()).isSameAs(OrderingMode.ASCENDING);
-		assertThat(sliceQuery.getPartitionComponents()).containsExactly(11L);
-		assertThat(sliceQuery.isLimitSet()).isFalse();
-	}
+        SliceQuery<ClusteredEntity> sliceQuery = new SliceQuery<ClusteredEntity>(ClusteredEntity.class, meta,
+                Arrays.<Object>asList(11L), Arrays.<Object>asList("a"), Arrays.<Object>asList("b"),
+                OrderingMode.ASCENDING, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 99, false);
 
-	@Test
-	public void should_return_true_when_no_component() throws Exception {
-		PropertyMeta idMeta = mock(PropertyMeta.class);
+        assertThat(sliceQuery.getEntityClass()).isSameAs(ClusteredEntity.class);
+        assertThat(sliceQuery.getBatchSize()).isEqualTo(99);
+        assertThat(sliceQuery.getBounding()).isEqualTo(BoundingMode.INCLUSIVE_BOUNDS);
+        assertThat(sliceQuery.getClusteringsFrom()).containsExactly(11L, "a");
+        assertThat(sliceQuery.getClusteringsTo()).containsExactly(11L, "b");
+        assertThat(sliceQuery.getConsistencyLevel()).isNull();
+        assertThat(sliceQuery.getLimit()).isEqualTo(100);
+        assertThat(sliceQuery.getMeta()).isSameAs(meta);
+        assertThat(sliceQuery.getOrdering()).isSameAs(OrderingMode.ASCENDING);
+        assertThat(sliceQuery.getPartitionComponents()).containsExactly(11L);
+        assertThat(sliceQuery.isLimitSet()).isFalse();
+    }
 
-		EntityMeta meta = new EntityMeta();
-		meta.setIdMeta(idMeta);
-		SliceQuery<ClusteredEntity> sliceQuery = new SliceQuery<ClusteredEntity>(ClusteredEntity.class, meta,
-				Arrays.<Object> asList(11L), Arrays.<Object> asList(), Arrays.<Object> asList(),
-				OrderingMode.ASCENDING, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 99, false);
+    @Test
+    public void should_return_true_when_no_component() throws Exception {
+        PropertyMeta idMeta = mock(PropertyMeta.class);
 
-		assertThat(sliceQuery.hasNoComponent()).isTrue();
-	}
+        EntityMeta meta = new EntityMeta();
+        meta.setIdMeta(idMeta);
+        SliceQuery<ClusteredEntity> sliceQuery = new SliceQuery<ClusteredEntity>(ClusteredEntity.class, meta,
+                Arrays.<Object>asList(11L), Arrays.<Object>asList(), Arrays.<Object>asList(),
+                OrderingMode.ASCENDING, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 99, false);
+
+        assertThat(sliceQuery.hasNoComponent()).isTrue();
+    }
 }

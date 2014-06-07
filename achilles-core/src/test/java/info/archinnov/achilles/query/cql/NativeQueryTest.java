@@ -15,25 +15,34 @@
  */
 package info.archinnov.achilles.query.cql;
 
+import static info.archinnov.achilles.internal.async.AsyncUtils.RESULTSET_TO_ROWS;
+import static info.archinnov.achilles.type.OptionsBuilder.noOptions;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Matchers.any;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
-import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Answers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
-import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
-import org.powermock.reflect.Whitebox;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
+import com.google.common.base.Function;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.ListenableFuture;
+import info.archinnov.achilles.async.AchillesFuture;
+import info.archinnov.achilles.internal.async.AsyncUtils;
+import info.archinnov.achilles.internal.async.Empty;
+import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
 import info.archinnov.achilles.internal.persistence.operations.NativeQueryMapper;
 import info.archinnov.achilles.internal.statement.wrapper.SimpleStatementWrapper;
@@ -44,11 +53,13 @@ import info.archinnov.achilles.type.TypedMap;
 @RunWith(MockitoJUnitRunner.class)
 public class NativeQueryTest {
 
-    @InjectMocks
     private NativeQuery query;
 
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private DaoContext daoContext;
+
+    @Mock
+    private ConfigurationContext configContext;
 
     private String queryString = "query";
 
@@ -56,76 +67,160 @@ public class NativeQueryTest {
     private NativeQueryMapper mapper;
 
     @Mock
+    private AsyncUtils asyncUtils;
+
+    @Mock
+    private ExecutorService executorService;
+
+    @Mock
     private Row row;
+
+    @Mock
+    private ListenableFuture<ResultSet> futureResultSet;
+
+    @Mock
+    private ListenableFuture<List<Row>> futureRows;
+
+    @Mock
+    private ListenableFuture<List<TypedMap>> futureTypedMaps;
+
+    @Mock
+    private ListenableFuture<TypedMap> futureTypedMap;
+
+    @Mock
+    private ListenableFuture<Empty> futureEmpty;
+
+    @Mock
+    private AchillesFuture<List<TypedMap>> achillesFutureTypedMaps;
+
+    @Mock
+    private AchillesFuture<TypedMap> achillesFutureTypedMap;
+
+    @Mock
+    private AchillesFuture<Empty> achillesFutureEmpty;
+
+    @Captor
+    private ArgumentCaptor<Function<List<Row>, List<TypedMap>>> rowsToTypedMapsCaptor;
+
+    @Captor
+    private ArgumentCaptor<Function<List<Row>, TypedMap>> rowsToTypedMapCaptor;
+
+    private FutureCallback<Object>[] asyncListeners = new FutureCallback[] { };
 
     @Captor
     private ArgumentCaptor<SimpleStatementWrapper> simpleStatementCaptor;
 
     @Before
     public void setUp() {
-        query.queryString = queryString;
-        Whitebox.setInternalState(query, NativeQueryMapper.class, mapper);
+
+        when(configContext.getExecutorService()).thenReturn(executorService);
+        query = new NativeQuery(daoContext, configContext, queryString, noOptions(), null);
+        query.asyncUtils = asyncUtils;
+        query.mapper = mapper;
     }
 
     @Test
-    public void should_get() throws Exception {
+    public void should_get_async() throws Exception {
+        // Given
         List<Row> rows = Arrays.asList(row);
-        when(daoContext.execute(any(SimpleStatementWrapper.class)).all()).thenReturn(rows);
+        List<TypedMap> typedMaps = new ArrayList<>();
 
-        List<TypedMap> result = new ArrayList<>();
-        when(mapper.mapRows(rows)).thenReturn(result);
+        when(daoContext.execute(any(SimpleStatementWrapper.class))).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROWS)).thenReturn(futureRows);
+        when(asyncUtils.transformFuture(eq(futureRows), rowsToTypedMapsCaptor.capture())).thenReturn(futureTypedMaps);
+        when(asyncUtils.buildInterruptible(futureTypedMaps)).thenReturn(achillesFutureTypedMaps);
 
-        List<TypedMap> actual = query.get();
+        when(mapper.mapRows(rows)).thenReturn(typedMaps);
 
-        assertThat(actual).isSameAs(result);
+        // When
+        final AchillesFuture<List<TypedMap>> actual = query.asyncGet(asyncListeners);
+
+        // Then
+        assertThat(actual).isSameAs(achillesFutureTypedMaps);
+        verify(asyncUtils).maybeAddAsyncListeners(futureTypedMaps, asyncListeners, executorService);
+
+        final Function<List<Row>, List<TypedMap>> function = rowsToTypedMapsCaptor.getValue();
+        final List<TypedMap> actualTypedMaps = function.apply(rows);
+
+        assertThat(actualTypedMaps).isSameAs(typedMaps);
     }
 
     @Test
-    public void should_get_one() throws Exception {
-
+    public void should_get_first_async() throws Exception {
+        // Given
         List<Row> rows = Arrays.asList(row);
-        when(daoContext.execute(any(SimpleStatementWrapper.class)).all()).thenReturn(rows);
+        TypedMap typedMap = new TypedMap();
+        List<TypedMap> typedMaps = new ArrayList<>();
+        typedMaps.add(typedMap);
 
-        List<TypedMap> result = new ArrayList<>();
-        TypedMap line = new TypedMap();
-        result.add(line);
-        when(mapper.mapRows(rows)).thenReturn(result);
+        when(daoContext.execute(any(SimpleStatementWrapper.class))).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROWS)).thenReturn(futureRows);
+        when(asyncUtils.transformFuture(eq(futureRows), rowsToTypedMapCaptor.capture())).thenReturn(futureTypedMap);
+        when(asyncUtils.buildInterruptible(futureTypedMap)).thenReturn(achillesFutureTypedMap);
 
-        TypedMap actual = query.first();
-        assertThat(actual).isSameAs(line);
+        when(mapper.mapRows(rows)).thenReturn(typedMaps);
+
+        // When
+        final AchillesFuture<TypedMap> actual = query.asyncFirst(asyncListeners);
+
+        // Then
+        assertThat(actual).isSameAs(achillesFutureTypedMap);
+        verify(asyncUtils).maybeAddAsyncListeners(futureTypedMap, asyncListeners, executorService);
+
+        final Function<List<Row>, TypedMap> function = rowsToTypedMapCaptor.getValue();
+        final TypedMap actualTypedMap = function.apply(rows);
+        assertThat(actualTypedMap).isSameAs(typedMap);
+
     }
 
     @Test
     public void should_return_null_when_no_row() throws Exception {
-
+        // Given
         List<Row> rows = Arrays.asList(row);
-        when(daoContext.execute(any(SimpleStatementWrapper.class)).all()).thenReturn(rows);
+        List<TypedMap> typedMaps = new ArrayList<>();
 
-        List<TypedMap> result = new ArrayList<>();
-        when(mapper.mapRows(rows)).thenReturn(result);
+        when(daoContext.execute(any(SimpleStatementWrapper.class))).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROWS)).thenReturn(futureRows);
+        when(asyncUtils.transformFuture(eq(futureRows), rowsToTypedMapCaptor.capture())).thenReturn(futureTypedMap);
+        when(asyncUtils.buildInterruptible(futureTypedMap)).thenReturn(achillesFutureTypedMap);
 
-        Map<String, Object> actual = query.first();
-        assertThat(actual).isNull();
+        when(mapper.mapRows(rows)).thenReturn(typedMaps);
+
+        // When
+        final AchillesFuture<TypedMap> actual = query.asyncFirst(asyncListeners);
+
+        // Then
+        assertThat(actual).isSameAs(achillesFutureTypedMap);
+        verify(asyncUtils).maybeAddAsyncListeners(futureTypedMap, asyncListeners, executorService);
+
+        final Function<List<Row>, TypedMap> function = rowsToTypedMapCaptor.getValue();
+        final TypedMap actualTypedMap = function.apply(rows);
+        assertThat(actualTypedMap).isNull();
     }
 
     @Test
-    public void should_execute_upserts() throws Exception {
+    public void should_execute_async() throws Exception {
         //Given
         final Object[] boundValues = { "test" };
         final Options options = OptionsBuilder.ifNotExists();
-        query.boundValues = boundValues;
-        query.options = options;
+        query = new NativeQuery(daoContext, configContext, queryString, options, boundValues);
+        query.asyncUtils = asyncUtils;
+
+        when(daoContext.execute(simpleStatementCaptor.capture())).thenReturn(futureResultSet);
+        when(asyncUtils.transformFutureToEmpty(futureResultSet)).thenReturn(futureEmpty);
+        when(asyncUtils.buildInterruptible(futureEmpty)).thenReturn(achillesFutureEmpty);
 
         //When
-        query.execute();
+        final AchillesFuture<Empty> actual = query.asyncExecute(asyncListeners);
 
         //Then
-        verify(daoContext).execute(simpleStatementCaptor.capture());
+        assertThat(actual).isSameAs(achillesFutureEmpty);
 
-        final SimpleStatementWrapper actual = simpleStatementCaptor.getValue();
-        assertThat(actual.getStatement().getQueryString()).isEqualTo(queryString);
-        assertThat(actual.getValues()).isEqualTo(boundValues);
+        verify(asyncUtils).maybeAddAsyncListeners(futureEmpty, asyncListeners, executorService);
+
+        final SimpleStatementWrapper statementWrapper = simpleStatementCaptor.getValue();
+        assertThat(statementWrapper.getStatement().getQueryString()).isEqualTo(queryString);
+        assertThat(statementWrapper.getValues()).isEqualTo(boundValues);
 
     }
-
 }

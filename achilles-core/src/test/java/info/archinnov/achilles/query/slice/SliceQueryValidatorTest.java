@@ -18,16 +18,9 @@ package info.archinnov.achilles.query.slice;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Matchers.anyListOf;
 import static org.mockito.Mockito.when;
-import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
-import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
-import info.archinnov.achilles.exception.AchillesException;
-import info.archinnov.achilles.type.BoundingMode;
-import info.archinnov.achilles.type.OrderingMode;
-
 import java.util.Arrays;
 import java.util.List;
 import java.util.UUID;
-
 import org.junit.Before;
 import org.junit.Rule;
 import org.junit.Test;
@@ -37,207 +30,215 @@ import org.mockito.Mock;
 import org.mockito.invocation.InvocationOnMock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.mockito.stubbing.Answer;
+import com.google.common.util.concurrent.FutureCallback;
+import info.archinnov.achilles.exception.AchillesException;
+import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
+import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
+import info.archinnov.achilles.type.BoundingMode;
+import info.archinnov.achilles.type.OrderingMode;
 
 @RunWith(MockitoJUnitRunner.class)
 public class SliceQueryValidatorTest {
 
-	@Rule
-	public ExpectedException exception = ExpectedException.none();
+    @Rule
+    public ExpectedException exception = ExpectedException.none();
 
-	private SliceQueryValidator validator = new SliceQueryValidator();
+    private SliceQueryValidator validator = new SliceQueryValidator();
 
-	@Mock
-	private PropertyMeta idMeta;
+    private FutureCallback<Object>[] asyncListeners = new FutureCallback[] { };
 
-	@Mock
-	private EntityMeta meta;
+    @Mock
+    private PropertyMeta idMeta;
 
-	private SliceQuery<Object> sliceQuery;
+    @Mock
+    private EntityMeta meta;
 
-	@Before
-	public void setUp() {
-		when(meta.getIdMeta()).thenReturn(idMeta);
-		when(idMeta.encodeToComponents(anyListOf(Object.class))).thenAnswer(new Answer<List<Object>>() {
-			@SuppressWarnings("unchecked")
-			@Override
-			public List<Object> answer(InvocationOnMock invocation) throws Throwable {
-				Object[] args = invocation.getArguments();
-				return (List<Object>) args[0];
-			}
-		});
-	}
+    private SliceQuery<Object> sliceQuery;
+
+    @Before
+    public void setUp() {
+        when(meta.getIdMeta()).thenReturn(idMeta);
+        when(idMeta.encodeToComponents(anyListOf(Object.class))).thenAnswer(new Answer<List<Object>>() {
+            @SuppressWarnings("unchecked")
+            @Override
+            public List<Object> answer(InvocationOnMock invocation) throws Throwable {
+                Object[] args = invocation.getArguments();
+                return (List<Object>) args[0];
+            }
+        });
+    }
 
     @Test
     public void should_return_last_non_null_index_when_all_components_not_null() throws Exception {
-        assertThat(validator.getLastNonNullIndex(Arrays.<Object> asList(11L, "name", 12.0))).isEqualTo(2);
+        assertThat(validator.getLastNonNullIndex(Arrays.<Object>asList(11L, "name", 12.0))).isEqualTo(2);
     }
 
     @Test
     public void should_return_last_non_null_index_when_some_components_are_null() throws Exception {
-        assertThat(validator.getLastNonNullIndex(Arrays.<Object> asList(11L, null, null))).isEqualTo(0);
+        assertThat(validator.getLastNonNullIndex(Arrays.<Object>asList(11L, null, null))).isEqualTo(0);
     }
 
     @Test
     public void should_return_last_non_null_index_when_hole_in_component() throws Exception {
-        assertThat(validator.getLastNonNullIndex(Arrays.<Object> asList(11L, null, 12))).isEqualTo(0);
+        assertThat(validator.getLastNonNullIndex(Arrays.<Object>asList(11L, null, 12))).isEqualTo(0);
     }
 
-	@Test
-	public void should_exception_when_components_not_in_correct_order_for_ascending() throws Exception {
-		List<Object> clusteringsFrom = Arrays.<Object> asList(11);
-		List<Object> clusteringsTo = Arrays.<Object> asList(10);
-		OrderingMode ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
+    @Test
+    public void should_exception_when_components_not_in_correct_order_for_ascending() throws Exception {
+        List<Object> clusteringsFrom = Arrays.<Object>asList(11);
+        List<Object> clusteringsTo = Arrays.<Object>asList(10);
+        OrderingMode ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
 
-		exception.expect(AchillesException.class);
-		exception
-				.expectMessage("For slice query with ascending order, start clustering last component should be 'lesser or equal' to end clustering last component: [[11],[10]");
-		validator.validateComponentsForSliceQuery(sliceQuery);
-	}
+        exception.expect(AchillesException.class);
+        exception
+                .expectMessage("For slice query with ascending order, start clustering last component should be 'lesser or equal' to end clustering last component: [[11],[10]");
+        validator.validateComponentsForSliceQuery(sliceQuery);
+    }
 
-	@Test
-	public void should_exception_when_components_not_in_correct_order_for_descending() throws Exception {
-		List<Object> clusteringsFrom = Arrays.<Object> asList(11);
-		List<Object> clusteringsTo = Arrays.<Object> asList(12);
-		OrderingMode ordering = OrderingMode.DESCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
+    @Test
+    public void should_exception_when_components_not_in_correct_order_for_descending() throws Exception {
+        List<Object> clusteringsFrom = Arrays.<Object>asList(11);
+        List<Object> clusteringsTo = Arrays.<Object>asList(12);
+        OrderingMode ordering = OrderingMode.DESCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
 
-		exception.expect(AchillesException.class);
-		exception
-				.expectMessage("For slice query with descending order, start clustering last component should be 'greater or equal' to end clustering last component: [[11],[12]");
-		validator.validateComponentsForSliceQuery(sliceQuery);
-	}
+        exception.expect(AchillesException.class);
+        exception
+                .expectMessage("For slice query with descending order, start clustering last component should be 'greater or equal' to end clustering last component: [[11],[12]");
+        validator.validateComponentsForSliceQuery(sliceQuery);
+    }
 
-	@Test
-	public void should_validate_clustering_components() throws Exception {
-		UUID uuid1 = new UUID(10, 11);
-		UUID uuid2 = new UUID(10, 12);
-		OrderingMode ordering = OrderingMode.ASCENDING;
+    @Test
+    public void should_validate_clustering_components() throws Exception {
+        UUID uuid1 = new UUID(10, 11);
+        UUID uuid2 = new UUID(10, 12);
+        OrderingMode ordering = OrderingMode.ASCENDING;
 
-		List<Object> clusteringsFrom = Arrays.<Object> asList(uuid1, "author", 3);
-		List<Object> clusteringsTo = Arrays.<Object> asList(uuid1, "author", 4);
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        List<Object> clusteringsFrom = Arrays.<Object>asList(uuid1, "author", 3);
+        List<Object> clusteringsTo = Arrays.<Object>asList(uuid1, "author", 4);
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(uuid1, "author", 3);
-		clusteringsTo = Arrays.<Object> asList(uuid1, "author", null);
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(uuid1, "author", 3);
+        clusteringsTo = Arrays.<Object>asList(uuid1, "author", null);
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(uuid1, "author", null);
-		clusteringsTo = Arrays.<Object> asList(uuid1, "author", 3);
-		ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(uuid1, "author", null);
+        clusteringsTo = Arrays.<Object>asList(uuid1, "author", 3);
+        ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(uuid1, "a", null);
-		clusteringsTo = Arrays.<Object> asList(uuid1, "b", null);
-		ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(uuid1, "a", null);
+        clusteringsTo = Arrays.<Object>asList(uuid1, "b", null);
+        ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(uuid1, "a", null);
-		clusteringsTo = Arrays.<Object> asList(uuid1, null, null);
-		ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(uuid1, "a", null);
+        clusteringsTo = Arrays.<Object>asList(uuid1, null, null);
+        ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(uuid1, null, null);
-		clusteringsTo = Arrays.<Object> asList(uuid1, "b", null);
-		ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(uuid1, null, null);
+        clusteringsTo = Arrays.<Object>asList(uuid1, "b", null);
+        ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(uuid1, null, null);
-		clusteringsTo = Arrays.<Object> asList(uuid2, null, null);
-		ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(uuid1, null, null);
+        clusteringsTo = Arrays.<Object>asList(uuid2, null, null);
+        ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(uuid1, "a", null);
-		clusteringsTo = Arrays.<Object> asList(uuid1, "a", null);
-		ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(uuid1, "a", null);
+        clusteringsTo = Arrays.<Object>asList(uuid1, "a", null);
+        ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(10L);
-		clusteringsTo = Arrays.<Object> asList(10L);
-		ordering = OrderingMode.ASCENDING;
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(10L);
+        clusteringsTo = Arrays.<Object>asList(10L);
+        ordering = OrderingMode.ASCENDING;
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList(10L);
-		clusteringsTo = Arrays.<Object> asList();
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
+        clusteringsFrom = Arrays.<Object>asList(10L);
+        clusteringsTo = Arrays.<Object>asList();
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
 
-		clusteringsFrom = Arrays.<Object> asList();
-		clusteringsTo = Arrays.<Object> asList(10L);
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
-		validator.validateComponentsForSliceQuery(sliceQuery);
-	}
+        clusteringsFrom = Arrays.<Object>asList();
+        clusteringsTo = Arrays.<Object>asList(10L);
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
+        validator.validateComponentsForSliceQuery(sliceQuery);
+    }
 
-	@Test
-	public void should_exception_when_too_many_start_components() throws Exception {
-		UUID uuid1 = new UUID(10, 11);
+    @Test
+    public void should_exception_when_too_many_start_components() throws Exception {
+        UUID uuid1 = new UUID(10, 11);
 
-		List<Object> clusteringsFrom = Arrays.<Object> asList(uuid1, "a", 1);
-		List<Object> clusteringsTo = Arrays.<Object> asList(uuid1, null, null);
-		OrderingMode ordering = OrderingMode.ASCENDING;
+        List<Object> clusteringsFrom = Arrays.<Object>asList(uuid1, "a", 1);
+        List<Object> clusteringsTo = Arrays.<Object>asList(uuid1, null, null);
+        OrderingMode ordering = OrderingMode.ASCENDING;
 
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
 
-		exception.expect(AchillesException.class);
-		exception.expectMessage("There should be no more than 1 component difference between clustering keys: [["
-				+ uuid1 + ",a,1],[" + uuid1 + ",,]");
-		validator.validateComponentsForSliceQuery(sliceQuery);
-	}
+        exception.expect(AchillesException.class);
+        exception.expectMessage("There should be no more than 1 component difference between clustering keys: [["
+                + uuid1 + ",a,1],[" + uuid1 + ",,]");
+        validator.validateComponentsForSliceQuery(sliceQuery);
+    }
 
-	@Test
-	public void should_exception_when_components_are_not_equal_case1() throws Exception {
-		UUID uuid1 = new UUID(10, 11);
-		List<Object> clusteringsFrom = Arrays.<Object> asList(uuid1, "a", 1);
-		List<Object> clusteringsTo = Arrays.<Object> asList(uuid1, "b", 2);
-		OrderingMode ordering = OrderingMode.ASCENDING;
+    @Test
+    public void should_exception_when_components_are_not_equal_case1() throws Exception {
+        UUID uuid1 = new UUID(10, 11);
+        List<Object> clusteringsFrom = Arrays.<Object>asList(uuid1, "a", 1);
+        List<Object> clusteringsTo = Arrays.<Object>asList(uuid1, "b", 2);
+        OrderingMode ordering = OrderingMode.ASCENDING;
 
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
 
-		exception.expect(AchillesException.class);
-		exception.expectMessage("2th component for clustering keys should be equal: [[" + uuid1 + ",a,1],[" + uuid1
-				+ ",b,2]");
-		validator.validateComponentsForSliceQuery(sliceQuery);
-	}
+        exception.expect(AchillesException.class);
+        exception.expectMessage("2th component for clustering keys should be equal: [[" + uuid1 + ",a,1],[" + uuid1
+                + ",b,2]");
+        validator.validateComponentsForSliceQuery(sliceQuery);
+    }
 
-	@Test
-	public void should_exception_when_components_are_not_equal_case2() throws Exception {
-		UUID uuid1 = new UUID(10, 11);
+    @Test
+    public void should_exception_when_components_are_not_equal_case2() throws Exception {
+        UUID uuid1 = new UUID(10, 11);
 
-		List<Object> clusteringsFrom = Arrays.<Object> asList(uuid1, "a", null);
-		List<Object> clusteringsTo = Arrays.<Object> asList(uuid1, "b", 2);
-		OrderingMode ordering = OrderingMode.ASCENDING;
+        List<Object> clusteringsFrom = Arrays.<Object>asList(uuid1, "a", null);
+        List<Object> clusteringsTo = Arrays.<Object>asList(uuid1, "b", 2);
+        OrderingMode ordering = OrderingMode.ASCENDING;
 
-		sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object> asList(10L), clusteringsFrom,
-				clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, 100, 100, false);
+        sliceQuery = new SliceQuery<Object>(Object.class, meta, Arrays.<Object>asList(10L), clusteringsFrom,
+                clusteringsTo, ordering, BoundingMode.INCLUSIVE_BOUNDS, null, asyncListeners, 100, 100, false);
 
-		exception.expect(AchillesException.class);
-		exception.expectMessage("2th component for clustering keys should be equal: [[" + uuid1 + ",a,],[" + uuid1
-				+ ",b,2]");
-		validator.validateComponentsForSliceQuery(sliceQuery);
-	}
+        exception.expect(AchillesException.class);
+        exception.expectMessage("2th component for clustering keys should be equal: [[" + uuid1 + ",a,],[" + uuid1
+                + ",b,2]");
+        validator.validateComponentsForSliceQuery(sliceQuery);
+    }
 
 }

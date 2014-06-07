@@ -15,6 +15,10 @@
  */
 package info.archinnov.achilles.query.slice;
 
+import java.util.ArrayList;
+import java.util.List;
+import org.apache.commons.collections.CollectionUtils;
+import com.google.common.util.concurrent.FutureCallback;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
 import info.archinnov.achilles.internal.validation.Validator;
@@ -22,122 +26,122 @@ import info.archinnov.achilles.type.BoundingMode;
 import info.archinnov.achilles.type.ConsistencyLevel;
 import info.archinnov.achilles.type.OrderingMode;
 
-import java.util.ArrayList;
-import java.util.List;
-
-import org.apache.commons.collections.CollectionUtils;
-
 public class SliceQuery<T> {
-	public static final int DEFAULT_LIMIT = 100;
-	public static final int DEFAULT_BATCH_SIZE = 100;
+    public static final int DEFAULT_LIMIT = 100;
+    public static final int DEFAULT_BATCH_SIZE = 100;
 
-	private Class<T> entityClass;
-	private EntityMeta meta;
-	private List<Object> partitionComponents;
-	private List<Object> clusteringsFrom = new ArrayList<Object>();
-	private List<Object> clusteringsTo = new ArrayList<Object>();
-	private OrderingMode ordering;
-	private BoundingMode bounding;
-	private ConsistencyLevel consistencyLevel;
-	private int batchSize;
-	private int limit;
-	private boolean limitSet;
-	private boolean noComponent;
+    private Class<T> entityClass;
+    private EntityMeta meta;
+    private List<Object> partitionComponents;
+    private List<Object> clusteringsFrom = new ArrayList<>();
+    private List<Object> clusteringsTo = new ArrayList<>();
+    private OrderingMode ordering;
+    private BoundingMode bounding;
+    private ConsistencyLevel consistencyLevel;
+    private int batchSize;
+    private int limit;
+    private FutureCallback<Object>[] asyncListeners;
+    private boolean limitSet;
+    private boolean noComponent;
 
-	public SliceQuery(Class<T> entityClass, EntityMeta meta, List<Object> partitionComponents,
-			List<Object> clusteringsFrom, List<Object> clusteringsTo, OrderingMode ordering, BoundingMode bounding,
-			ConsistencyLevel consistencyLevel, int limit, int batchSize, boolean limitSet) {
+    public SliceQuery(Class<T> entityClass, EntityMeta meta, List<Object> partitionComponents,
+            List<Object> clusteringsFrom, List<Object> clusteringsTo, OrderingMode ordering, BoundingMode bounding,
+            ConsistencyLevel consistencyLevel, FutureCallback<Object>[] asyncListeners, int limit, int batchSize, boolean limitSet) {
+        this.asyncListeners = asyncListeners;
 
-		this.limitSet = limitSet;
-		Validator.validateTrue(CollectionUtils.isNotEmpty(partitionComponents),
-				"Partition components should be set for slice query for entity class '%s'",
-				entityClass.getCanonicalName());
+        this.limitSet = limitSet;
+        Validator.validateTrue(CollectionUtils.isNotEmpty(partitionComponents),
+                "Partition components should be set for slice query for entity class '%s'",
+                entityClass.getCanonicalName());
 
-		this.entityClass = entityClass;
-		this.meta = meta;
+        this.entityClass = entityClass;
+        this.meta = meta;
 
-		this.partitionComponents = partitionComponents;
-		this.noComponent = clusteringsFrom.isEmpty() && clusteringsTo.isEmpty();
+        this.partitionComponents = partitionComponents;
+        this.noComponent = clusteringsFrom.isEmpty() && clusteringsTo.isEmpty();
 
-		PropertyMeta idMeta = meta.getIdMeta();
+        PropertyMeta idMeta = meta.getIdMeta();
 
-		List<Object> componentsFrom = new ArrayList<Object>();
-		componentsFrom.addAll(partitionComponents);
-		componentsFrom.addAll(clusteringsFrom);
+        List<Object> componentsFrom = new ArrayList<>();
+        componentsFrom.addAll(partitionComponents);
+        componentsFrom.addAll(clusteringsFrom);
 
-		this.clusteringsFrom = idMeta.encodeToComponents(componentsFrom);
+        this.clusteringsFrom = idMeta.encodeToComponents(componentsFrom);
 
-		List<Object> componentsTo = new ArrayList<>();
-		componentsTo.addAll(partitionComponents);
-		componentsTo.addAll(clusteringsTo);
+        List<Object> componentsTo = new ArrayList<>();
+        componentsTo.addAll(partitionComponents);
+        componentsTo.addAll(clusteringsTo);
 
-		this.clusteringsTo = idMeta.encodeToComponents(componentsTo);
+        this.clusteringsTo = idMeta.encodeToComponents(componentsTo);
 
-		this.ordering = ordering;
-		this.bounding = bounding;
-		this.consistencyLevel = consistencyLevel;
-		this.limit = limit;
-		this.batchSize = batchSize;
-	}
+        this.ordering = ordering;
+        this.bounding = bounding;
+        this.consistencyLevel = consistencyLevel;
+        this.limit = limit;
+        this.batchSize = batchSize;
+    }
 
-	public Class<T> getEntityClass() {
-		return entityClass;
-	}
+    public Class<T> getEntityClass() {
+        return entityClass;
+    }
 
-	public EntityMeta getMeta() {
-		return meta;
-	}
+    public EntityMeta getMeta() {
+        return meta;
+    }
 
-	public PropertyMeta getIdMeta() {
-		return meta.getIdMeta();
-	}
+    public PropertyMeta getIdMeta() {
+        return meta.getIdMeta();
+    }
 
-	boolean hasReversedClustering() {
-		return getIdMeta().hasReversedComponent();
-	}
+    boolean hasReversedClustering() {
+        return getIdMeta().hasReversedComponent();
+    }
 
-	public List<Object> getPartitionComponents() {
-		return partitionComponents;
-	}
+    public List<Object> getPartitionComponents() {
+        return partitionComponents;
+    }
 
-	public int partitionComponentsSize() {
-		return partitionComponents != null ? partitionComponents.size() : 0;
-	}
+    public int partitionComponentsSize() {
+        return partitionComponents != null ? partitionComponents.size() : 0;
+    }
 
-	public List<Object> getClusteringsFrom() {
-		return clusteringsFrom;
-	}
+    public List<Object> getClusteringsFrom() {
+        return clusteringsFrom;
+    }
 
-	public List<Object> getClusteringsTo() {
-		return clusteringsTo;
-	}
+    public List<Object> getClusteringsTo() {
+        return clusteringsTo;
+    }
 
-	public OrderingMode getOrdering() {
-		return hasReversedClustering() ? ordering.reverse() : ordering;
-	}
+    public OrderingMode getOrdering() {
+        return hasReversedClustering() ? ordering.reverse() : ordering;
+    }
 
-	public BoundingMode getBounding() {
-		return bounding;
-	}
+    public BoundingMode getBounding() {
+        return bounding;
+    }
 
-	public ConsistencyLevel getConsistencyLevel() {
-		return consistencyLevel;
-	}
+    public ConsistencyLevel getConsistencyLevel() {
+        return consistencyLevel;
+    }
 
-	public int getLimit() {
-		return limit;
-	}
+    public int getLimit() {
+        return limit;
+    }
 
-	public int getBatchSize() {
-		return batchSize;
-	}
+    public int getBatchSize() {
+        return batchSize;
+    }
 
-	public boolean isLimitSet() {
-		return limitSet;
-	}
+    public boolean isLimitSet() {
+        return limitSet;
+    }
 
-	public boolean hasNoComponent() {
-		return noComponent;
-	}
+    public boolean hasNoComponent() {
+        return noComponent;
+    }
 
+    public FutureCallback<Object>[] getAsyncListeners() {
+        return asyncListeners;
+    }
 }

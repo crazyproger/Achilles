@@ -19,6 +19,7 @@ import static info.archinnov.achilles.test.integration.entity.ClusteredEntity.TA
 import static info.archinnov.achilles.type.ConsistencyLevel.EACH_QUORUM;
 import static info.archinnov.achilles.type.ConsistencyLevel.ONE;
 import static info.archinnov.achilles.type.ConsistencyLevel.THREE;
+import static info.archinnov.achilles.type.OptionsBuilder.withConsistency;
 import static org.fest.assertions.api.Assertions.assertThat;
 import java.util.List;
 import org.apache.commons.lang.math.RandomUtils;
@@ -73,7 +74,7 @@ public class ConsistencyLevelPriorityOrderingIT {
         entity = batchEm.find(EntityWithConsistencyLevelOnClassAndField.class, entity.getId());
 
         logAsserter.assertConsistencyLevels(ONE, ONE);
-        batchEm.endBatch();
+        batchEm.flushBatch();
 
         assertThatBatchContextHasBeenReset(batchEm);
         assertThat(entity.getName()).isEqualTo("name");
@@ -95,10 +96,9 @@ public class ConsistencyLevelPriorityOrderingIT {
         batchEm.startBatch(EACH_QUORUM);
 
         expectedEx.expect(AchillesException.class);
-        expectedEx
-                .expectMessage("Runtime custom Consistency Level cannot be set for batch mode. Please set the Consistency Levels at batch start with 'startBatch(consistencyLevel)'");
+        expectedEx.expectMessage("Runtime custom Consistency Level and/or async listeners cannot be set for batch mode. Please set the Consistency Levels at batch start with 'startBatch(consistencyLevel)' and async listener using flushBatch(...)");
 
-        batchEm.find(EntityWithConsistencyLevelOnClassAndField.class, entity.getId(), ONE);
+        batchEm.update(entity.getId(), withConsistency(ONE));
     }
 
     // Counter type
@@ -130,8 +130,7 @@ public class ConsistencyLevelPriorityOrderingIT {
         entity = batchEm.persist(entity);
 
         expectedEx.expect(UnavailableException.class);
-        expectedEx
-                .expectMessage("Not enough replica available for query at consistency THREE (3 required but only 1 alive)");
+        expectedEx.expectMessage("Not enough replica available for query at consistency THREE (3 required but only 1 alive)");
 
         entity.getCount();
     }

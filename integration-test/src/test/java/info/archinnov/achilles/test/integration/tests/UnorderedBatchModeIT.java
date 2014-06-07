@@ -51,7 +51,7 @@ public class UnorderedBatchModeIT {
         entity.setName("name1");
         batchingPM.persist(entity);
 
-        batchingPM.endBatch();
+        batchingPM.flushBatch();
         //Then
 
         CompleteBean actual = batchingPM.find(CompleteBean.class, entity.getId());
@@ -76,7 +76,7 @@ public class UnorderedBatchModeIT {
         managed.setName("name1");
         batchingPM.update(managed);
 
-        batchingPM.endBatch();
+        batchingPM.flushBatch();
 
         //Then
         pm.refresh(managed);

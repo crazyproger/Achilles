@@ -20,8 +20,10 @@ import static com.google.common.collect.ImmutableMap.of;
 import static info.archinnov.achilles.counter.AchillesCounter.CQLQueryType.DELETE;
 import static info.archinnov.achilles.counter.AchillesCounter.CQLQueryType.INCR;
 import static info.archinnov.achilles.counter.AchillesCounter.CQLQueryType.SELECT;
+import static info.archinnov.achilles.counter.AchillesCounter.CQL_COUNTER_VALUE;
 import static info.archinnov.achilles.counter.AchillesCounter.ClusteredCounterStatement.DELETE_ALL;
 import static info.archinnov.achilles.counter.AchillesCounter.ClusteredCounterStatement.SELECT_ALL;
+import static info.archinnov.achilles.internal.context.DaoContext.RESULTSET_TO_ROW;
 import static info.archinnov.achilles.internal.persistence.operations.CollectionAndMapChangeType.ADD_TO_SET;
 import static info.archinnov.achilles.internal.persistence.operations.CollectionAndMapChangeType.REMOVE_FROM_LIST_AT_INDEX;
 import static info.archinnov.achilles.internal.persistence.operations.CollectionAndMapChangeType.SET_TO_LIST_AT_INDEX;
@@ -29,7 +31,6 @@ import static info.archinnov.achilles.type.ConsistencyLevel.ALL;
 import static info.archinnov.achilles.type.ConsistencyLevel.EACH_QUORUM;
 import static info.archinnov.achilles.type.ConsistencyLevel.LOCAL_QUORUM;
 import static info.archinnov.achilles.type.ConsistencyLevel.ONE;
-import static java.util.Arrays.asList;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
@@ -38,6 +39,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import org.apache.commons.lang.math.RandomUtils;
 import org.junit.Before;
 import org.junit.Rule;
@@ -50,8 +52,6 @@ import org.mockito.Captor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
-import org.powermock.reflect.Whitebox;
-import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.PreparedStatement;
 import com.datastax.driver.core.RegularStatement;
@@ -66,9 +66,10 @@ import com.datastax.driver.core.querybuilder.Using;
 import com.google.common.base.Optional;
 import com.google.common.cache.Cache;
 import com.google.common.collect.ImmutableMap;
-import com.google.common.collect.Lists;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.counter.AchillesCounter.CQLQueryType;
 import info.archinnov.achilles.exception.AchillesException;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.consistency.ConsistencyOverrider;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
@@ -122,6 +123,12 @@ public class DaoContextTest {
     @Mock
     private CacheManager cacheManager;
 
+    @Mock
+    private ExecutorService executorService;
+
+    @Mock(answer = Answers.RETURNS_DEEP_STUBS)
+    private AsyncUtils asyncUtils;
+
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private PersistenceContext.DaoFacade context;
 
@@ -149,26 +156,35 @@ public class DaoContextTest {
     @Mock
     private ConsistencyOverrider overrider;
 
-    @Captor
-    ArgumentCaptor<Using> usingCaptor;
+    @Mock
+    private ListenableFuture<ResultSet> futureResultSet;
+
+    @Mock
+    private ListenableFuture<Row> futureRow;
 
     @Captor
-    ArgumentCaptor<RegularStatementWrapper> statementWrapperCaptor;
+    private ArgumentCaptor<Using> usingCaptor;
+
+    @Captor
+    private ArgumentCaptor<RegularStatementWrapper> statementWrapperCaptor;
 
     private CompleteBean entity = CompleteBeanTestBuilder.builder().randomId().buid();
 
     @Before
     public void setUp() {
-        Whitebox.setInternalState(daoContext, PreparedStatementBinder.class, binder);
-        Whitebox.setInternalState(daoContext, CacheManager.class, cacheManager);
-        Whitebox.setInternalState(daoContext, Cache.class, dynamicPSCache);
-        Whitebox.setInternalState(daoContext, "selectPSs", selectEagerPSs);
-        Whitebox.setInternalState(daoContext, "removePSs", removePSs);
-        Whitebox.setInternalState(daoContext, "counterQueryMap", counterQueryMap);
-        Whitebox.setInternalState(daoContext, "clusteredCounterQueryMap", clusteredCounterQueryMap);
-        Whitebox.setInternalState(daoContext, Session.class, session);
-        Whitebox.setInternalState(daoContext, StatementGenerator.class, statementGenerator);
-        Whitebox.setInternalState(daoContext, ConsistencyOverrider.class, overrider);
+        daoContext.binder = binder;
+        daoContext.cacheManager = cacheManager;
+        daoContext.dynamicPSCache = dynamicPSCache;
+        daoContext.selectPSs = selectEagerPSs;
+        daoContext.removePSs = removePSs;
+        daoContext.counterQueryMap = counterQueryMap;
+        daoContext.clusteredCounterQueryMap = clusteredCounterQueryMap;
+        daoContext.session = session;
+        daoContext.statementGenerator = statementGenerator;
+        daoContext.overrider = overrider;
+        daoContext.asyncUtils = asyncUtils;
+        daoContext.executorService = executorService;
+
         clusteredCounterQueryMap.clear();
         entityMeta = new EntityMeta();
         entityMeta.setEntityClass(CompleteBean.class);
@@ -310,71 +326,52 @@ public class DaoContextTest {
     @Test
     public void should_eager_load_entity() throws Exception {
         // Given
-        ResultSet resultSet = mock(ResultSet.class);
-        Row row = mock(Row.class);
-
-        // When
         when(context.<CompleteBean>getEntityClass()).thenReturn(CompleteBean.class);
         when(selectEagerPSs.get(CompleteBean.class)).thenReturn(ps);
         when(overrider.getReadLevel(context)).thenReturn(LOCAL_QUORUM);
         when(binder.bindStatementWithOnlyPKInWhereClause(context, ps, LOCAL_QUORUM)).thenReturn(bsWrapper);
-        when(resultSet.all()).thenReturn(asList(row));
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
+        when(context.executeImmediate(bsWrapper)).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROW)).thenReturn(futureRow);
+
+        // When
+        final ListenableFuture<Row> actual = daoContext.loadEntity(context);
 
         // Then
-        Row actual = daoContext.loadEntity(context);
-        assertThat(actual).isSameAs(row);
+        assertThat(actual).isSameAs(futureRow);
     }
 
     @Test
     public void should_load_property() throws Exception {
         // Given
         PropertyMeta pm = mock(PropertyMeta.class);
-        ResultSet resultSet = mock(ResultSet.class);
         Row row = mock(Row.class);
 
-        // When
         when(cacheManager.getCacheForFieldSelect(session, dynamicPSCache, context, pm)).thenReturn(ps);
         when(overrider.getReadLevel(context)).thenReturn(EACH_QUORUM);
         when(binder.bindStatementWithOnlyPKInWhereClause(context, ps, EACH_QUORUM)).thenReturn(bsWrapper);
-        when(resultSet.all()).thenReturn(asList(row));
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
+        when(context.executeImmediate(bsWrapper)).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROW)).thenReturn(futureRow);
+        when(asyncUtils.buildInterruptible(futureRow).getImmediately()).thenReturn(row);
+
+        // When
+        Row actual = daoContext.loadProperty(context, pm);
 
         // Then
-        Row actual = daoContext.loadProperty(context, pm);
 
         assertThat(actual).isSameAs(row);
     }
 
-    @Test
-    public void should_return_null_when_loading_property() throws Exception {
-        // Given
-        ResultSet resultSet = mock(ResultSet.class);
-        PropertyMeta pm = mock(PropertyMeta.class);
-
-        // When
-        when(cacheManager.getCacheForFieldSelect(session, dynamicPSCache, context, pm)).thenReturn(ps);
-        when(overrider.getReadLevel(context)).thenReturn(EACH_QUORUM);
-        when(binder.bindStatementWithOnlyPKInWhereClause(context, ps, EACH_QUORUM)).thenReturn(bsWrapper);
-        when(resultSet.all()).thenReturn(Lists.<Row>newLinkedList());
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
-
-        // Then
-        assertThat(daoContext.loadProperty(context, pm)).isNull();
-    }
 
     @Test
     public void should_execute_query() throws Exception {
         // Given
-        ResultSet resultSet = mock(ResultSet.class);
+        when(bsWrapper.executeAsync(session, executorService)).thenReturn(futureResultSet);
 
         // When
-        when(bsWrapper.execute(session)).thenReturn(resultSet);
+        final ListenableFuture<ResultSet> actual = daoContext.execute(bsWrapper);
 
         // Then
-        ResultSet actual = daoContext.execute(bsWrapper);
-
-        assertThat(actual).isSameAs(resultSet);
+        assertThat(actual).isSameAs(futureResultSet);
     }
 
     // Simple counter
@@ -429,20 +426,22 @@ public class DaoContextTest {
     @Test
     public void should_get_simple_counter() throws Exception {
         // Given
-        ResultSet resultSet = mock(ResultSet.class);
         Row row = mock(Row.class);
         PropertyMeta pm = PropertyMetaTestBuilder.valueClass(String.class).field("name").consistencyLevels(Pair.create(EACH_QUORUM, EACH_QUORUM)).build();
 
-        // When
         when(counterQueryMap.get(CQLQueryType.SELECT)).thenReturn(ps);
         when(binder.bindForSimpleCounterSelect(context, ps, pm, EACH_QUORUM)).thenReturn(bsWrapper);
+        when(context.executeImmediate(bsWrapper)).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROW)).thenReturn(futureRow);
+        when(asyncUtils.buildInterruptible(futureRow).getImmediately()).thenReturn(row);
+        when(row.isNull(CQL_COUNTER_VALUE)).thenReturn(false);
+        when(row.getLong(CQL_COUNTER_VALUE)).thenReturn(11L);
 
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
-        when(resultSet.all()).thenReturn(asList(row));
+        // When
+        Long actual = daoContext.getSimpleCounter(context, pm, EACH_QUORUM);
 
         // Then
-        Row actual = daoContext.getSimpleCounter(context, pm, EACH_QUORUM);
-        assertThat(actual).isSameAs(row);
+        assertThat(actual).isSameAs(11L);
     }
 
     @Test
@@ -483,20 +482,18 @@ public class DaoContextTest {
     @Test
     public void should_get_clustered_counter() throws Exception {
         // Given
-        ResultSet resultSet = mock(ResultSet.class);
-        Row row = mock(Row.class);
         clusteredCounterQueryMap.put(CompleteBean.class, ImmutableMap.<CQLQueryType, Map<String, PreparedStatement>>of(SELECT, of(SELECT_ALL.name(), ps)));
 
-        // When
         when(overrider.getReadLevel(context)).thenReturn(EACH_QUORUM);
         when(binder.bindForClusteredCounterSelect(context, ps, EACH_QUORUM)).thenReturn(bsWrapper);
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
-        when(resultSet.all()).thenReturn(asList(row));
+        when(context.executeImmediate(bsWrapper)).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROW)).thenReturn(futureRow);
+
+        // When
+        ListenableFuture<Row> actual = daoContext.getClusteredCounter(context);
 
         // Then
-        Row actual = daoContext.getClusteredCounter(context);
-
-        assertThat(actual).isSameAs(row);
+        assertThat(actual).isSameAs(futureRow);
     }
 
     @Test
@@ -504,69 +501,25 @@ public class DaoContextTest {
         // Given
         PropertyMeta counterMeta = mock(PropertyMeta.class);
         when(counterMeta.getPropertyName()).thenReturn("counter");
-
-        ResultSet resultSet = mock(ResultSet.class);
         Row row = mock(Row.class);
-        when(resultSet.one()).thenReturn(row);
-        when(row.getLong("counter")).thenReturn(11L);
 
         clusteredCounterQueryMap.put(CompleteBean.class, ImmutableMap.<CQLQueryType, Map<String, PreparedStatement>>of(SELECT, of("counter", ps)));
-
-        // When
         when(overrider.getReadLevel(context, counterMeta)).thenReturn(EACH_QUORUM);
         when(binder.bindForClusteredCounterSelect(context, ps, EACH_QUORUM)).thenReturn(bsWrapper);
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
+        when(context.executeImmediate(bsWrapper)).thenReturn(futureResultSet);
+        when(asyncUtils.transformFuture(futureResultSet, RESULTSET_TO_ROW)).thenReturn(futureRow);
+        when(asyncUtils.buildInterruptible(futureRow).getImmediately()).thenReturn(row);
 
-        // Then
+        when(row.isNull("counter")).thenReturn(false);
+        when(row.getLong("counter")).thenReturn(11L);
+
+        // When
         Long actual = daoContext.getClusteredCounterColumn(context, counterMeta);
 
+        // Then
         assertThat(actual).isEqualTo(11L);
     }
 
-    @Test
-    public void should_get_null_clustered_counter_column() throws Exception {
-        // Given
-        PropertyMeta counterMeta = mock(PropertyMeta.class);
-        when(counterMeta.getPropertyName()).thenReturn("counter");
-
-        ResultSet resultSet = mock(ResultSet.class);
-        Row row = mock(Row.class);
-        when(resultSet.one()).thenReturn(row);
-        when(row.isNull("counter")).thenReturn(true);
-
-        clusteredCounterQueryMap.put(CompleteBean.class, ImmutableMap.<CQLQueryType, Map<String, PreparedStatement>>of(SELECT, of("counter", ps)));
-
-        // When
-        when(overrider.getReadLevel(context, counterMeta)).thenReturn(EACH_QUORUM);
-        when(binder.bindForClusteredCounterSelect(context, ps, EACH_QUORUM)).thenReturn(bsWrapper);
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
-
-        // Then
-        Long actual = daoContext.getClusteredCounterColumn(context, counterMeta);
-
-        assertThat(actual).isNull();
-    }
-
-    @Test
-    public void should_get_null_clustered_counter_column_when_not_found() throws Exception {
-        // Given
-        PropertyMeta counterMeta = mock(PropertyMeta.class);
-        when(counterMeta.getPropertyName()).thenReturn("counter");
-
-        ResultSet resultSet = mock(ResultSet.class);
-
-        clusteredCounterQueryMap.put(CompleteBean.class, ImmutableMap.<CQLQueryType, Map<String, PreparedStatement>>of(SELECT, of("counter", ps)));
-
-        // When
-        when(overrider.getReadLevel(context, counterMeta)).thenReturn(EACH_QUORUM);
-        when(binder.bindForClusteredCounterSelect(context, ps, EACH_QUORUM)).thenReturn(bsWrapper);
-        when(context.executeImmediate(bsWrapper)).thenReturn(resultSet);
-
-        // Then
-        Long actual = daoContext.getClusteredCounterColumn(context, counterMeta);
-
-        assertThat(actual).isNull();
-    }
 
     @Test
     public void should_bind_clustered_counter_delete() throws Exception {
@@ -605,16 +558,5 @@ public class DaoContextTest {
 
         assertThat(daoContext.prepare(statement)).isSameAs(ps);
     }
-
-    @Test
-    public void should_execute_batch() throws Exception {
-        // Given
-        BatchStatement batch = mock(BatchStatement.class);
-
-        // When
-        daoContext.executeBatch(batch);
-
-        // Then
-        verify(session).execute(batch);
-    }
 }
+

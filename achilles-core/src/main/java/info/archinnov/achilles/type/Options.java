@@ -22,6 +22,7 @@ import org.apache.commons.collections.CollectionUtils;
 import com.datastax.driver.core.querybuilder.Clause;
 import com.google.common.base.Objects;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.FutureCallback;
 import info.archinnov.achilles.internal.validation.Validator;
 import info.archinnov.achilles.listener.CASResultListener;
 
@@ -38,6 +39,8 @@ public class Options {
     List<CASCondition> CASConditions;
 
     Optional<CASResultListener> casResultListenerO = Optional.absent();
+
+    List<FutureCallback<Object>> asyncListeners;
 
     Options() {
     }
@@ -62,12 +65,20 @@ public class Options {
         return CASConditions;
     }
 
-    public boolean hasCasConditions() {
+    public boolean hasCASConditions() {
         return CollectionUtils.isNotEmpty(CASConditions);
     }
 
     public Optional<CASResultListener> getCasResultListener() {
         return casResultListenerO;
+    }
+
+    public List<FutureCallback<Object>> getAsyncListeners() {
+        return asyncListeners;
+    }
+
+    public boolean hasAsyncListeners() {
+        return CollectionUtils.isNotEmpty(asyncListeners);
     }
 
     @Override
@@ -76,6 +87,10 @@ public class Options {
                 .add("Consistency Level", this.consistency)
                 .add("Time to live", this.ttl)
                 .add("Timestamp", this.timestamp)
+                .add("CAS(If not exist)", this.ifNotExists)
+                .add("CAS conditions", this.CASConditions)
+                .add("CAS result listener optional", this.casResultListenerO)
+                .add("Async listeners", this.asyncListeners)
                 .toString();
     }
 
@@ -152,6 +167,16 @@ public class Options {
             result = 31 * result + value.hashCode();
             return result;
         }
+
+
+        @Override
+        public String toString() {
+            return Objects.toStringHelper(Options.class)
+                    .add("columnName", this.columnName)
+                    .add("value", this.value)
+                    .toString();
+        }
+
     }
 
 }

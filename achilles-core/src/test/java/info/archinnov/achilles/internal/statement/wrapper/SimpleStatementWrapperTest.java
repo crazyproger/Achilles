@@ -18,6 +18,8 @@ package info.archinnov.achilles.internal.statement.wrapper;
 
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+import java.util.concurrent.ExecutorService;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
@@ -25,9 +27,13 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import com.datastax.driver.core.RegularStatement;
+import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ListenableFuture;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.listener.CASResultListener;
 
 @RunWith(MockitoJUnitRunner.class)
@@ -40,6 +46,18 @@ public class SimpleStatementWrapperTest {
     @Mock
     private Session session;
 
+    @Mock
+    private ExecutorService executorService;
+
+    @Mock
+    private AsyncUtils asyncUtils;
+
+    @Mock
+    private ResultSetFuture resultSetFuture;
+
+    @Mock
+    private ListenableFuture<ResultSet> futureResultSet;
+
     @Captor
     private ArgumentCaptor<RegularStatement> statementCaptor;
 
@@ -49,12 +67,17 @@ public class SimpleStatementWrapperTest {
     public void should_execute() throws Exception {
         //Given
         wrapper = new SimpleStatementWrapper("SELECT", values, noListener);
+        wrapper.traceQueryForEntity = true;
+        wrapper.asyncUtils = asyncUtils;
+
+        when(session.executeAsync(statementCaptor.capture())).thenReturn(resultSetFuture);
+        when(asyncUtils.applyLoggingTracingAndCASCheck(resultSetFuture, wrapper, executorService)).thenReturn(futureResultSet);
 
         //When
-        wrapper.execute(session);
+        final ListenableFuture<ResultSet> actual = wrapper.executeAsync(session, executorService);
 
         //Then
-        verify(session).execute(statementCaptor.capture());
+        assertThat(actual).isSameAs(futureResultSet);
 
         final RegularStatement regularStatement = statementCaptor.getValue();
         assertThat(regularStatement.getQueryString()).isEqualTo("SELECT");

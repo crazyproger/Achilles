@@ -25,6 +25,7 @@ import static info.archinnov.achilles.interceptor.Event.PRE_PERSIST;
 import static info.archinnov.achilles.interceptor.Event.PRE_REMOVE;
 import static info.archinnov.achilles.interceptor.Event.PRE_UPDATE;
 import static info.archinnov.achilles.test.integration.entity.CompleteBeanTestBuilder.builder;
+import static info.archinnov.achilles.type.CounterBuilder.incr;
 import static java.util.Arrays.asList;
 import static org.fest.assertions.api.Assertions.assertThat;
 import java.util.Arrays;
@@ -66,7 +67,7 @@ public class EventInterceptorIT {
     private Interceptor<CompleteBean> postPersist = new Interceptor<CompleteBean>() {
         @Override
         public void onEvent(CompleteBean entity) {
-            entity.setLabel("postPersist");
+            entity.setLabel("postPersist : " + entity.getLabel());
         }
 
         @Override
@@ -154,7 +155,8 @@ public class EventInterceptorIT {
     private List<Interceptor<CompleteBean>> postRemoveInterceptors = Arrays.asList(postRemove);
 
     private PersistenceManagerFactory pmf = CassandraEmbeddedServerBuilder
-            .withEntityPackages(CompleteBean.class.getPackage().getName()).withKeyspaceName("interceptor_keyspace1")
+            .withEntities(CompleteBean.class)
+            .withKeyspaceName("interceptor_keyspace1")
             .withAchillesConfigParams(ImmutableMap.of(EVENT_INTERCEPTORS, interceptors, FORCE_TABLE_CREATION, true))
             .buildPersistenceManagerFactory();
 
@@ -178,16 +180,17 @@ public class EventInterceptorIT {
     @Test
     public void should_apply_persist_interceptors() throws Exception {
 
-        CompleteBean entity = builder().randomId().name("DuyHai").label("label").buid();
+        CompleteBean entity = builder().randomId().name("DuyHai").label("label").version(incr(2L)).buid();
 
         manager.persist(entity);
+
+        assertThat(entity.getName()).isEqualTo("prePersist");
+        assertThat(entity.getLabel()).isEqualTo("postPersist : label");
 
         Row row = session.execute("select name,label from CompleteBean where id = " + entity.getId()).one();
 
         assertThat(row.getString("name")).isEqualTo("prePersist");
         assertThat(row.getString("label")).isEqualTo("label");
-        assertThat(entity.getName()).isEqualTo("prePersist");
-        assertThat(entity.getLabel()).isEqualTo("postPersist");
 
     }
 
@@ -243,7 +246,7 @@ public class EventInterceptorIT {
     }
 
     @Test
-    public void should_apply_interceptors_before_flush_for_batch() throws Exception {
+    public void should_apply_interceptors_after_flush_for_batch() throws Exception {
         // Given
         final BatchingPersistenceManager batchingPM = pmf.createBatchingPersistenceManager();
         batchingPM.startBatch();
@@ -258,11 +261,11 @@ public class EventInterceptorIT {
         assertThat(entity.getLabel()).isEqualTo("label");
 
         // When
-        batchingPM.endBatch();
+        batchingPM.flushBatch();
 
         // Then
         assertThat(entity.getName()).isEqualTo("prePersist");
-        assertThat(entity.getLabel()).isEqualTo("postPersist");
+        assertThat(entity.getLabel()).isEqualTo("postPersist : label");
     }
 
     @Test

@@ -28,6 +28,7 @@ import org.junit.Rule;
 import org.junit.Test;
 import org.junit.rules.ExpectedException;
 import org.powermock.reflect.Whitebox;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
@@ -112,7 +113,7 @@ public class BatchModeIT {
         assertThat(result).isNull();
 
         // Flush
-        batchEm.endBatch();
+        batchEm.flushBatch();
 
         Statement statement = new SimpleStatement("SELECT label from CompleteBean where id=" + entity.getId());
         Row row = manager.getNativeSession().execute(statement).one();
@@ -151,7 +152,10 @@ public class BatchModeIT {
         assertThat(foundUser).isNull();
 
         // Flush
-        batchEm.endBatch();
+        batchEm.flushBatch();
+
+        final ResultSet resultSet = manager.getNativeSession().execute("SELECT id,favoriteTweets,followers,friends,age_in_years,name,welcomeTweet,label,preferences FROM CompleteBean WHERE id=:id", bean.getId());
+        assertThat(resultSet.all()).hasSize(1);
 
         foundBean = batchEm.find(CompleteBean.class, bean.getId());
         foundTweet1 = batchEm.find(Tweet.class, tweet1.getId());
@@ -186,14 +190,14 @@ public class BatchModeIT {
 
         // batchEm should reinit batch context
         batchEm.persist(user);
-        batchEm.endBatch();
+        batchEm.flushBatch();
 
         User foundUser = batchEm.find(User.class, user.getId());
         assertThat(foundUser.getFirstname()).isEqualTo("firstname");
         assertThat(foundUser.getLastname()).isEqualTo("lastname");
 
         batchEm.persist(tweet);
-        batchEm.endBatch();
+        batchEm.flushBatch();
 
         Tweet foundTweet = batchEm.find(Tweet.class, tweet.getId());
         assertThat(foundTweet.getContent()).isEqualTo("simple_tweet");
@@ -226,7 +230,7 @@ public class BatchModeIT {
         batchEm.persist(tweet2);
         batchEm.persist(tweet3);
 
-        batchEm.endBatch();
+        batchEm.flushBatch();
 
         logAsserter.assertConsistencyLevels(QUORUM, QUORUM);
         assertThatBatchContextHasBeenReset(batchEm);
@@ -247,7 +251,7 @@ public class BatchModeIT {
         batchEm.persist(tweet2);
 
         try {
-            batchEm.endBatch();
+            batchEm.flushBatch();
         } catch (Exception e) {
             assertThatBatchContextHasBeenReset(batchEm);
         }
@@ -255,7 +259,7 @@ public class BatchModeIT {
         Thread.sleep(1000);
         logAsserter.prepareLogLevel();
         batchEm.persist(tweet2);
-        batchEm.endBatch();
+        batchEm.flushBatch();
         logAsserter.assertConsistencyLevels(ONE, ONE);
     }
 
@@ -272,7 +276,7 @@ public class BatchModeIT {
         entity.setLabel("label");
         batchPM.update(entity);
 
-        batchPM.endBatch();
+        batchPM.flushBatch();
 
         //Then
         Statement statement = new SimpleStatement("SELECT label from CompleteBean where id=" + entity.getId());
@@ -294,7 +298,7 @@ public class BatchModeIT {
         entity.setName("name");
         batchPM.update(entity);
 
-        batchPM.endBatch();
+        batchPM.flushBatch();
 
         //Then
         Statement statement = new SimpleStatement("SELECT name from CompleteBean where id=" + entity.getId());

@@ -23,13 +23,14 @@ import static info.archinnov.achilles.internal.statement.wrapper.AbstractStateme
 import static info.archinnov.achilles.listener.CASResultListener.CASResult;
 import static info.archinnov.achilles.listener.CASResultListener.CASResult.Operation.INSERT;
 import static info.archinnov.achilles.listener.CASResultListener.CASResult.Operation.UPDATE;
+import static java.util.Arrays.asList;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import java.net.InetAddress;
-import java.util.Arrays;
+import java.util.concurrent.ExecutorService;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import org.fest.assertions.data.MapEntry;
@@ -37,6 +38,8 @@ import org.junit.Before;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Answers;
+import org.mockito.ArgumentCaptor;
+import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import com.datastax.driver.core.ColumnDefinitions;
@@ -46,10 +49,14 @@ import com.datastax.driver.core.ExecutionInfo;
 import com.datastax.driver.core.QueryTrace;
 import com.datastax.driver.core.RegularStatement;
 import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
+import com.datastax.driver.core.Statement;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.exception.AchillesCASException;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.reflection.RowMethodInvoker;
 import info.archinnov.achilles.listener.CASResultListener;
 import info.archinnov.achilles.test.mapping.entity.CompleteBean;
@@ -61,22 +68,38 @@ public class RegularStatementWrapperTest {
     private RegularStatementWrapper wrapper;
 
     @Mock
+    private AsyncUtils asyncUtils;
+
+    @Mock
+    private ExecutorService executorService;
+
+    @Mock
     private RegularStatement rs;
 
     @Mock
     private Session session;
 
     @Mock
-    private Row row;
+    private ResultSetFuture resultSetFuture;
+
+    @Mock
+    private ListenableFuture<ResultSet> futureResultSet;
 
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private ResultSet resultSet;
+
+    @Mock
+    private Row row;
+
 
     @Mock(answer = Answers.RETURNS_DEEP_STUBS)
     private ColumnDefinitions columnDefinitions;
 
     @Mock
     private RowMethodInvoker invoker;
+
+    @Captor
+    private ArgumentCaptor<Statement> statementCaptor;
 
     private Optional<CASResultListener> noListener = Optional.absent();
 
@@ -90,12 +113,16 @@ public class RegularStatementWrapperTest {
     public void should_execute() throws Exception {
         //Given
         wrapper = new RegularStatementWrapper(CompleteBean.class, rs, new Object[] { 1 }, ONE, noListener);
+        wrapper.traceQueryForEntity = true;
+        wrapper.asyncUtils = asyncUtils;
+        when(session.executeAsync(statementCaptor.capture())).thenReturn(resultSetFuture);
+        when(asyncUtils.applyLoggingTracingAndCASCheck(resultSetFuture, wrapper, executorService)).thenReturn(futureResultSet);
 
         //When
-        wrapper.execute(session);
+        final ListenableFuture<ResultSet> actual = wrapper.executeAsync(session, executorService);
 
         //Then
-        verify(session).execute(rs);
+        assertThat(actual).isSameAs(futureResultSet);
     }
 
     @Test
@@ -116,14 +143,12 @@ public class RegularStatementWrapperTest {
 
         when(rs.getQueryString()).thenReturn("INSERT INTO table IF NOT EXISTS");
         wrapper = new RegularStatementWrapper(CompleteBean.class, rs, new Object[] { 1 }, ONE, Optional.fromNullable(listener));
-        when(session.execute(rs)).thenReturn(resultSet);
         when(resultSet.one().getBool(CAS_RESULT_COLUMN)).thenReturn(true);
 
         //When
-        wrapper.execute(session);
+        wrapper.checkForCASSuccess(resultSet);
 
         //Then
-        verify(session).execute(rs);
         assertThat(casSuccess.get()).isTrue();
     }
 
@@ -144,7 +169,6 @@ public class RegularStatementWrapperTest {
         wrapper = new RegularStatementWrapper(CompleteBean.class, rs, new Object[] { 1 }, ONE, Optional.fromNullable(listener));
         wrapper.invoker = invoker;
         when(rs.getQueryString()).thenReturn("UPDATE table IF name='John' SET");
-        when(session.execute(rs)).thenReturn(resultSet);
         when(resultSet.one()).thenReturn(row);
         when(row.getBool(CAS_RESULT_COLUMN)).thenReturn(false);
         when(row.getColumnDefinitions()).thenReturn(columnDefinitions);
@@ -158,10 +182,9 @@ public class RegularStatementWrapperTest {
         when(invoker.invokeOnRowForType(row, DataType.text().asJavaClass(), "name")).thenReturn("Helen");
 
         //When
-        wrapper.execute(session);
+        wrapper.checkForCASSuccess(resultSet);
 
         //Then
-        verify(session).execute(rs);
         final CASResult actual = atomicCASResult.get();
         assertThat(actual).isNotNull();
         assertThat(actual.operation()).isEqualTo(UPDATE);
@@ -174,7 +197,6 @@ public class RegularStatementWrapperTest {
         wrapper = new RegularStatementWrapper(CompleteBean.class, rs, new Object[] { 1 }, ONE, noListener);
         wrapper.invoker = invoker;
         when(rs.getQueryString()).thenReturn("INSERT INTO table IF NOT EXISTS");
-        when(session.execute(rs)).thenReturn(resultSet);
         when(resultSet.one()).thenReturn(row);
         when(row.getBool(CAS_RESULT_COLUMN)).thenReturn(false);
         when(row.getColumnDefinitions()).thenReturn(columnDefinitions);
@@ -190,21 +212,19 @@ public class RegularStatementWrapperTest {
         AchillesCASException caughtEx = null;
         //When
         try {
-            wrapper.execute(session);
+            wrapper.checkForCASSuccess(resultSet);
         } catch (AchillesCASException ace) {
             caughtEx = ace;
         }
 
         //Then
-        verify(session).execute(rs);
         assertThat(caughtEx).isNotNull();
         assertThat(caughtEx.operation()).isEqualTo(INSERT);
         assertThat(caughtEx.currentValues()).contains(MapEntry.entry("[applied]", false), MapEntry.entry("id", 10L));
-
     }
 
     @Test
-    public void should_get_bound_statement() throws Exception {
+    public void should_get_statement() throws Exception {
         //Given
         wrapper = new RegularStatementWrapper(CompleteBean.class, rs, new Object[] { 1 }, ONE, noListener);
 
@@ -221,7 +241,7 @@ public class RegularStatementWrapperTest {
         wrapper = new RegularStatementWrapper(Entity1.class, rs, new Object[] { 1 }, ONE, noListener);
 
         //When
-        wrapper.activateQueryTracing(rs);
+        wrapper.activateQueryTracing();
 
         //Then
         verify(rs).enableTracing();
@@ -231,13 +251,14 @@ public class RegularStatementWrapperTest {
     public void should_trace_query() throws Exception {
         //Given
         wrapper = new RegularStatementWrapper(Entity1.class, rs, new Object[] { 1 }, ONE, noListener);
+        wrapper.traceQueryForEntity = true;
 
         ExecutionInfo executionInfo = mock(ExecutionInfo.class, RETURNS_DEEP_STUBS);
 
         QueryTrace.Event event = mock(QueryTrace.Event.class);
-        when(resultSet.getAllExecutionInfo()).thenReturn(Arrays.asList(executionInfo));
+        when(resultSet.getAllExecutionInfo()).thenReturn(asList(executionInfo));
         when(executionInfo.getAchievedConsistencyLevel()).thenReturn(ConsistencyLevel.ALL);
-        when(executionInfo.getQueryTrace().getEvents()).thenReturn(Arrays.asList(event));
+        when(executionInfo.getQueryTrace().getEvents()).thenReturn(asList(event));
         when(event.getDescription()).thenReturn("description");
         when(event.getSource()).thenReturn(InetAddress.getLocalHost());
         when(event.getSourceElapsedMicros()).thenReturn(100);

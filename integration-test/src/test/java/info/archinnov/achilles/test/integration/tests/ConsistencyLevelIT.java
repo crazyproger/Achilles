@@ -146,7 +146,7 @@ public class ConsistencyLevelIT {
         try {
             manager.find(CompleteBean.class, entity.getId(), ConsistencyLevel.EACH_QUORUM);
         } catch (InvalidQueryException e) {
-            assertThat(e).hasMessage("EACH_QUORUM ConsistencyLevel is only supported for writes");
+            assertThat(e).hasMessageContaining("EACH_QUORUM ConsistencyLevel is only supported for writes");
         }
         logAsserter.prepareLogLevel();
         CompleteBean found = manager.find(CompleteBean.class, entity.getId(), ConsistencyLevel.ALL);
@@ -162,7 +162,7 @@ public class ConsistencyLevelIT {
         try {
             manager.refresh(entity, ConsistencyLevel.EACH_QUORUM);
         } catch (InvalidQueryException e) {
-            assertThat(e).hasMessage("EACH_QUORUM ConsistencyLevel is only supported for writes");
+            assertThat(e).hasMessageContaining("EACH_QUORUM ConsistencyLevel is only supported for writes");
         }
         logAsserter.prepareLogLevel();
         manager.refresh(entity, ConsistencyLevel.ALL);

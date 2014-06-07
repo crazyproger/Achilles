@@ -15,16 +15,28 @@
  */
 package info.archinnov.achilles.query.typed;
 
+import static com.google.common.base.Predicates.notNull;
+import static com.google.common.collect.FluentIterable.from;
+import static info.archinnov.achilles.internal.async.AsyncUtils.RESULTSET_TO_ROW;
+import static info.archinnov.achilles.internal.async.AsyncUtils.RESULTSET_TO_ROWS;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
+import com.google.common.base.Function;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.ListenableFuture;
+import info.archinnov.achilles.async.AchillesFuture;
 import info.archinnov.achilles.interceptor.Event;
+import info.archinnov.achilles.internal.async.AsyncUtils;
+import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
 import info.archinnov.achilles.internal.context.PersistenceContext;
 import info.archinnov.achilles.internal.context.PersistenceContextFactory;
@@ -40,6 +52,7 @@ public class TypedQuery<T> {
     private static final Optional<CASResultListener> NO_LISTENER = Optional.absent();
 
     private DaoContext daoContext;
+    private ExecutorService executorService;
     private String normalizedQuery;
     private Map<String, PropertyMeta> propertiesMap;
     private EntityMeta meta;
@@ -49,11 +62,13 @@ public class TypedQuery<T> {
 
     private EntityMapper mapper = new EntityMapper();
     private EntityProxifier proxifier = new EntityProxifier();
+    private AsyncUtils asyncUtils = new AsyncUtils();
 
-    public TypedQuery(Class<T> entityClass, DaoContext daoContext, String queryString, EntityMeta meta,
+    public TypedQuery(Class<T> entityClass, DaoContext daoContext, ConfigurationContext configContext, String queryString, EntityMeta meta,
             PersistenceContextFactory contextFactory, boolean managed, boolean shouldNormalizeQuery,
             Object[] encodedBoundValues) {
         this.daoContext = daoContext;
+        this.executorService = configContext.getExecutorService();
         this.encodedBoundValues = meta.encodeBoundValuesForTypedQueries(encodedBoundValues);
         this.normalizedQuery = shouldNormalizeQuery ? queryString.toLowerCase() : queryString;
         this.meta = meta;
@@ -75,21 +90,43 @@ public class TypedQuery<T> {
      *
      */
     public List<T> get() {
-        log.debug("Get results for typed query {}", normalizedQuery);
-        List<T> result = new ArrayList<>();
-        List<Row> rows = daoContext.execute(new SimpleStatementWrapper(normalizedQuery, encodedBoundValues, NO_LISTENER)).all();
-        for (Row row : rows) {
-            T entity = mapper.mapRowToEntityWithPrimaryKey(meta, row, propertiesMap, managed);
-            if (entity != null) {
-                meta.intercept(entity, Event.POST_LOAD);
-                if (managed) {
-                    entity = buildProxy(entity);
-                }
-                result.add(entity);
-            }
-        }
-        return result;
+        log.debug("Get results for typed query '{}'", normalizedQuery);
+        return asyncGet().getImmediately();
     }
+
+    /**
+     * Executes the query and returns entities asynchronously
+     *
+     * Matching CQL rows are mapped to entities by reflection. All un-mapped
+     * columns are ignored.
+     *
+     * The size of the list is equal or lesser than the number of matching CQL
+     * row, because some null or empty rows are ignored and filtered out
+     *
+     * @return AchillesFuture<List<T>> future of list of found entities or empty list
+     *
+     */
+    public AchillesFuture<List<T>> asyncGet(FutureCallback<Object>... asyncListeners) {
+        log.debug("Get results asynchronously for typed query '{}'", normalizedQuery);
+
+        final SimpleStatementWrapper statementWrapper = new SimpleStatementWrapper(normalizedQuery, encodedBoundValues, NO_LISTENER);
+        final ListenableFuture<ResultSet> resultSetFuture = daoContext.execute(statementWrapper);
+        final ListenableFuture<List<Row>> futureRows = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROWS);
+
+        Function<List<Row>, List<T>> rowsToEntities = rowsToEntities();
+        Function<List<T>, List<T>> applyTriggers = applyTriggersToEntities();
+        Function<List<T>, List<T>> maybeCreateProxy = proxifyEntities();
+
+        final ListenableFuture<List<T>> rawEntities = asyncUtils.transformFuture(futureRows, rowsToEntities);
+        final ListenableFuture<List<T>> entitiesWithTriggers = asyncUtils.transformFuture(rawEntities, applyTriggers);
+
+        asyncUtils.maybeAddAsyncListeners(entitiesWithTriggers, asyncListeners, executorService);
+
+        final ListenableFuture<List<T>> maybeProxyCreated = asyncUtils.transformFuture(entitiesWithTriggers, maybeCreateProxy);
+
+        return asyncUtils.buildInterruptible(maybeProxyCreated);
+    }
+
 
     /**
      * Executes the query and returns first entity
@@ -101,20 +138,118 @@ public class TypedQuery<T> {
      *
      */
     public T getFirst() {
-        log.debug("Get first result for typed query {}", normalizedQuery);
-        T entity = null;
-        Row row = daoContext.execute(new SimpleStatementWrapper(normalizedQuery, encodedBoundValues, NO_LISTENER)).one();
-        if (row != null) {
-            entity = mapper.mapRowToEntityWithPrimaryKey(meta, row, propertiesMap, managed);
-            meta.intercept(entity, Event.POST_LOAD);
-            if (entity != null && managed) {
-                entity = buildProxy(entity);
-            }
-        }
-        return entity;
+        log.debug("Get first result for typed query '{}'", normalizedQuery);
+        return asyncGetFirst().getImmediately();
     }
 
-    private Map<String, PropertyMeta> transformPropertiesMap(EntityMeta meta) {
+    /**
+     * Executes the query and returns first entity
+     *
+     * Matching CQL row is mapped to entity by reflection. All un-mapped columns
+     * are ignored.
+     *
+     * @return T first found entity or null
+     *
+     */
+    public AchillesFuture<T> asyncGetFirst(FutureCallback<Object>... asyncListeners) {
+        log.debug("Get first result asynchronously for typed query '{}'", normalizedQuery);
+
+        final SimpleStatementWrapper statementWrapper = new SimpleStatementWrapper(normalizedQuery, encodedBoundValues, NO_LISTENER);
+        final ListenableFuture<ResultSet> resultSetFuture = daoContext.execute(statementWrapper);
+        final ListenableFuture<Row> futureRow = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+
+        Function<Row, T> rowToEntity = rowToEntity();
+        Function<T, T> applyTriggers = applyTriggersToEntity();
+        Function<T, T> maybeCreateProxy = proxifyEntity();
+
+        final ListenableFuture<T> rawEntity = asyncUtils.transformFuture(futureRow, rowToEntity);
+        final ListenableFuture<T> entityWithTriggers = asyncUtils.transformFuture(rawEntity, applyTriggers);
+
+        asyncUtils.maybeAddAsyncListeners(entityWithTriggers, asyncListeners, executorService);
+
+        final ListenableFuture<T> maybeProxyCreated = asyncUtils.transformFuture(entityWithTriggers, maybeCreateProxy);
+
+        return asyncUtils.buildInterruptible(maybeProxyCreated);
+    }
+
+    protected Function<Row, T> rowToEntity() {
+        return new Function<Row, T>() {
+            @Override
+            public T apply(Row row) {
+                T entity = null;
+                if (row != null) {
+                    entity = mapper.mapRowToEntityWithPrimaryKey(meta, row, propertiesMap, managed);
+                }
+                return entity;
+            }
+        };
+    }
+
+    protected Function<T, T> applyTriggersToEntity() {
+        return new Function<T, T>() {
+            @Override
+            public T apply(T entity) {
+                if (entity != null) {
+                    meta.intercept(entity, Event.POST_LOAD);
+                }
+                return entity;
+            }
+        };
+    }
+
+    protected Function<T, T> proxifyEntity() {
+        return new Function<T, T>() {
+            @Override
+            public T apply(T entity) {
+                T newEntity = entity;
+                if (managed && entity != null) {
+                    newEntity = buildProxy(entity);
+                }
+                return newEntity;
+            }
+        };
+    }
+
+
+    protected Function<List<Row>, List<T>> rowsToEntities() {
+        return new Function<List<Row>, List<T>>() {
+            @Override
+            public List<T> apply(List<Row> rows) {
+                List<T> entities = new ArrayList<>();
+                for (Row row : rows) {
+                    entities.add(rowToEntity().apply(row));
+                }
+                return from(entities).filter(notNull()).toList();
+            }
+        };
+    }
+
+    protected Function<List<T>, List<T>> applyTriggersToEntities() {
+        return new Function<List<T>, List<T>>() {
+            @Override
+            public List<T> apply(List<T> entities) {
+                for (T entity : entities) {
+                    applyTriggersToEntity().apply(entity);
+                }
+                return entities;
+            }
+        };
+    }
+
+    protected Function<List<T>, List<T>> proxifyEntities() {
+        return new Function<List<T>, List<T>>() {
+            @Override
+            public List<T> apply(List<T> entities) {
+                List<T> proxies = new ArrayList<>();
+                for (T entity : entities) {
+                    proxies.add(proxifyEntity().apply(entity));
+                }
+                return from(proxies).filter(notNull()).toList();
+            }
+        };
+    }
+
+    protected Map<String, PropertyMeta> transformPropertiesMap(EntityMeta meta) {
         Map<String, PropertyMeta> propertiesMap = new HashMap<>();
         for (Entry<String, PropertyMeta> entry : meta.getPropertyMetas().entrySet()) {
             String propertyName = entry.getKey().toLowerCase();

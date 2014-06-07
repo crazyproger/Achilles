@@ -16,14 +16,15 @@
 
 package info.archinnov.achilles.internal.statement.wrapper;
 
+import java.util.concurrent.ExecutorService;
 import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.SimpleStatement;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.listener.CASResultListener;
 
 public class SimpleStatementWrapper extends AbstractStatementWrapper {
-
 
     private SimpleStatement simpleStatement;
 
@@ -34,21 +35,21 @@ public class SimpleStatementWrapper extends AbstractStatementWrapper {
     }
 
     @Override
-    public ResultSet execute(Session session) {
-        logDMLStatement("");
-
+    public ListenableFuture<ResultSet> executeAsync(Session session, ExecutorService executorService) {
         final String queryString = simpleStatement.getQueryString();
-        final SimpleStatement statement = new SimpleStatement(queryString, values);
-        activateQueryTracing(statement);
-        ResultSet resultSet = session.execute(statement);
-        tracing(resultSet);
-        checkForCASSuccess(queryString, resultSet);
-        return resultSet;
+        this.simpleStatement = new SimpleStatement(queryString, values);
+        activateQueryTracing();
+        return super.executeAsyncInternal(session, this, executorService);
     }
 
     @Override
     public SimpleStatement getStatement() {
-        return simpleStatement;
+        return this.simpleStatement;
+    }
+
+    @Override
+    public String getQueryString() {
+        return simpleStatement.getQueryString();
     }
 
     @Override

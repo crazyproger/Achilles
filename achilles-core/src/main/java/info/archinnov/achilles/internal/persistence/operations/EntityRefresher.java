@@ -17,7 +17,11 @@ package info.archinnov.achilles.internal.persistence.operations;
 
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.google.common.base.Function;
+import com.google.common.util.concurrent.ListenableFuture;
+import info.archinnov.achilles.async.AchillesFuture;
 import info.archinnov.achilles.exception.AchillesStaleObjectStateException;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.context.facade.EntityOperations;
 import info.archinnov.achilles.internal.proxy.EntityInterceptor;
 
@@ -26,25 +30,38 @@ public class EntityRefresher {
 
     private EntityProxifier proxifier = new EntityProxifier();
     private EntityLoader loader = new EntityLoader();
+    private AsyncUtils asyncUtils = new AsyncUtils();
 
-    public void refresh(Object proxifiedEntity, EntityOperations context) throws AchillesStaleObjectStateException {
-        Object primaryKey = context.getPrimaryKey();
+    public <T> AchillesFuture<T> refresh(T proxy, final EntityOperations context) throws AchillesStaleObjectStateException {
+        final Object primaryKey = context.getPrimaryKey();
         log.debug("Refreshing entity of class {} and primary key {}", context.getEntityClass().getCanonicalName(),
                 primaryKey);
 
-        EntityInterceptor<Object> interceptor = proxifier.getInterceptor(proxifiedEntity);
-        Object entity = context.getEntity();
+        final EntityInterceptor<T> interceptor = proxifier.getInterceptor(proxy);
+        final Object entity = context.getEntity();
 
         interceptor.getDirtyMap().clear();
 
-        Object freshEntity = loader.load(context, context.getEntityClass());
+        final Class<T> entityClass = context.getEntityClass();
+        final AchillesFuture<T> entityFuture = loader.load(context, entityClass);
 
-        if (freshEntity == null) {
-            throw new AchillesStaleObjectStateException("The entity '" + entity + "' with primary_key '" + primaryKey
-                    + "' no longer exists in Cassandra");
-        }
-        interceptor.setTarget(freshEntity);
-        interceptor.getAlreadyLoaded().clear();
-        interceptor.getAlreadyLoaded().addAll(context.getAllGettersExceptCounters());
+        Function<T, T> updateInterceptor = updateProxyInterceptor(context, interceptor, entity, primaryKey);
+        final ListenableFuture<T> triggerInterceptors = asyncUtils.transformFuture(entityFuture, updateInterceptor, context.getExecutorService());
+        return asyncUtils.buildInterruptible(triggerInterceptors);
+    }
+
+    protected <T> Function<T, T> updateProxyInterceptor(final EntityOperations context, final EntityInterceptor<T> interceptor, final Object entity, final Object primaryKey) {
+        return new Function<T, T>() {
+                @Override
+                public T apply(T freshEntity) {
+                    if (freshEntity == null) {
+                        throw new AchillesStaleObjectStateException("The entity '" + entity + "' with primary_key '" + primaryKey + "' no longer exists in Cassandra");
+                    }
+                    interceptor.setTarget(freshEntity);
+                    interceptor.getAlreadyLoaded().clear();
+                    interceptor.getAlreadyLoaded().addAll(context.getAllGettersExceptCounters());
+                    return freshEntity;
+                }
+            };
     }
 }
