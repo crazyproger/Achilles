@@ -18,9 +18,10 @@ package info.archinnov.achilles.internal.statement.wrapper;
 import com.datastax.driver.core.BoundStatement;
 import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.PreparedStatement;
-import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Session;
 import com.google.common.base.Optional;
+import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
 import info.archinnov.achilles.listener.CASResultListener;
 
 public class BoundStatementWrapper extends AbstractStatementWrapper {
@@ -35,18 +36,20 @@ public class BoundStatementWrapper extends AbstractStatementWrapper {
     }
 
     @Override
-    public ResultSet execute(Session session) {
-        logDMLStatement("");
-        activateQueryTracing(boundStatement);
-        ResultSet resultSet = session.execute(boundStatement);
-        tracing(resultSet);
-        checkForCASSuccess(boundStatement.preparedStatement().getQueryString(), resultSet);
-        return resultSet;
+    public ResultSetFutureWrapper executeAsync(Session session) {
+        activateQueryTracing();
+        ResultSetFuture resultSet = session.executeAsync(boundStatement);
+        return new ResultSetFutureWrapper(resultSet, this);
     }
 
     @Override
     public BoundStatement getStatement() {
         return boundStatement;
+    }
+
+    @Override
+    public String getQueryString() {
+        return boundStatement.preparedStatement().getQueryString();
     }
 
     @Override

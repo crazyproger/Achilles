@@ -15,6 +15,7 @@
  */
 package info.archinnov.achilles.internal.context;
 
+import java.util.concurrent.ExecutorService;
 import javax.validation.Validator;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import info.archinnov.achilles.internal.interceptor.DefaultBeanValidationInterceptor;
@@ -36,13 +37,15 @@ public class ConfigurationContext {
 
     private DefaultBeanValidationInterceptor beanValidationInterceptor;
 
-    private int preparedStatementLRUCacheSize = 10000;
+    private int preparedStatementLRUCacheSize;
 
-    private boolean forceBatchStatementsOrdering = true;
+    private boolean forceBatchStatementsOrdering;
 
     private InsertStrategy insertStrategy;
 
 	private ClassLoader osgiClassLoader;
+
+	private ExecutorService executorService;
 
     public boolean isForceColumnFamilyCreation() {
         return forceColumnFamilyCreation;
@@ -137,5 +140,13 @@ public class ConfigurationContext {
 
     public ClassLoader selectClassLoader() {
         return osgiClassLoader != null ? osgiClassLoader : this.getClass().getClassLoader();
+    }
+
+	public ExecutorService getExecutorService() {
+        return executorService;
+    }
+
+    public void setExecutorService(ExecutorService executorService) {
+        this.executorService = executorService;
     }
 }

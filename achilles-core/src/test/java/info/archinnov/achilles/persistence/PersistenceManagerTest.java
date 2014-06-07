@@ -17,6 +17,7 @@ package info.archinnov.achilles.persistence;
 
 import static info.archinnov.achilles.type.ConsistencyLevel.EACH_QUORUM;
 import static info.archinnov.achilles.type.ConsistencyLevel.LOCAL_QUORUM;
+import static info.archinnov.achilles.type.OptionsBuilder.withConsistency;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Matchers.any;
 import static org.mockito.Matchers.eq;
@@ -155,7 +156,7 @@ public class PersistenceManagerTest {
     public void should_persist() throws Exception {
         // Given
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, entityFacade)).thenReturn(entity);
-        when(facade.persist(entity)).thenReturn(entity);
+        when(facade.persist(entity).getImmediately()).thenReturn(entity);
 
         // When
         CompleteBean actual = manager.persist(entity);
@@ -170,10 +171,10 @@ public class PersistenceManagerTest {
     public void should_persist_with_options() throws Exception {
         // Given
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, entityFacade)).thenReturn(entity);
-        when(facade.persist(entity)).thenReturn(entity);
+        when(facade.persist(entity).getImmediately()).thenReturn(entity);
 
         // When
-        CompleteBean actual = manager.persist(entity, OptionsBuilder.withConsistency(EACH_QUORUM).withTtl(150)
+        CompleteBean actual = manager.persist(entity, withConsistency(EACH_QUORUM).withTtl(150)
                 .withTimestamp(100L));
 
         // Then
@@ -215,7 +216,7 @@ public class PersistenceManagerTest {
         when(proxifier.getRealObject(entity)).thenReturn(entity);
 
         // When
-        manager.update(entity, OptionsBuilder.withConsistency(EACH_QUORUM).withTtl(150).withTimestamp(100L));
+        manager.update(entity, withConsistency(EACH_QUORUM).withTtl(150).withTimestamp(100L));
 
         // Then
         Options options = optionsCaptor.getValue();
@@ -252,7 +253,7 @@ public class PersistenceManagerTest {
         when(proxifier.getRealObject(entity)).thenReturn(entity);
 
         // When
-        manager.remove(entity, OptionsBuilder.withConsistency(EACH_QUORUM));
+        manager.remove(entity, withConsistency(EACH_QUORUM));
 
         // Then
         verify(entityValidator).validateEntity(entity, entityMetaMap);
@@ -299,7 +300,7 @@ public class PersistenceManagerTest {
     public void should_find() throws Exception {
         // When
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.find(CompleteBean.class)).thenReturn(entity);
+        when(facade.find(CompleteBean.class).getImmediately()).thenReturn(entity);
 
         PropertyMeta idMeta = new PropertyMeta();
         when(facade.getIdMeta()).thenReturn(idMeta);
@@ -321,7 +322,7 @@ public class PersistenceManagerTest {
     public void should_find_with_consistency() throws Exception {
         // When
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.find(CompleteBean.class)).thenReturn(entity);
+        when(facade.find(CompleteBean.class).getImmediately()).thenReturn(entity);
         when(facade.getIdMeta()).thenReturn(idMeta);
         when(entityMetaMap.containsKey(CompleteBean.class)).thenReturn(true);
 
@@ -341,7 +342,7 @@ public class PersistenceManagerTest {
     public void should_get_reference() throws Exception {
         // When
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.getProxy(CompleteBean.class)).thenReturn(entity);
+        when(facade.getProxy(CompleteBean.class).getImmediately()).thenReturn(entity);
         when(facade.getIdMeta()).thenReturn(idMeta);
         when(entityMetaMap.containsKey(CompleteBean.class)).thenReturn(true);
 
@@ -361,11 +362,11 @@ public class PersistenceManagerTest {
     public void should_get_reference_with_consistency() throws Exception {
         // When
         when(contextFactory.newContext(eq(CompleteBean.class), eq(primaryKey), optionsCaptor.capture())).thenReturn(context);
-        when(facade.getProxy(CompleteBean.class)).thenReturn(entity);
+        when(facade.getProxy(CompleteBean.class).getImmediately()).thenReturn(entity);
         when(facade.getIdMeta()).thenReturn(idMeta);
         when(entityMetaMap.containsKey(CompleteBean.class)).thenReturn(true);
 
-        CompleteBean bean = manager.getProxy(CompleteBean.class, primaryKey, EACH_QUORUM);
+        CompleteBean bean = manager.getProxy(CompleteBean.class, primaryKey, withConsistency(EACH_QUORUM));
 
         // Then
         verify(entityValidator).validatePrimaryKey(idMeta, primaryKey);

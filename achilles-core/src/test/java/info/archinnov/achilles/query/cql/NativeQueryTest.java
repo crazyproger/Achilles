@@ -70,7 +70,7 @@ public class NativeQueryTest {
     @Test
     public void should_get() throws Exception {
         List<Row> rows = Arrays.asList(row);
-        when(daoContext.execute(any(SimpleStatementWrapper.class)).all()).thenReturn(rows);
+        when(daoContext.execute(any(SimpleStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().all()).thenReturn(rows);
 
         List<TypedMap> result = new ArrayList<>();
         when(mapper.mapRows(rows)).thenReturn(result);
@@ -84,7 +84,7 @@ public class NativeQueryTest {
     public void should_get_one() throws Exception {
 
         List<Row> rows = Arrays.asList(row);
-        when(daoContext.execute(any(SimpleStatementWrapper.class)).all()).thenReturn(rows);
+        when(daoContext.execute(any(SimpleStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().all()).thenReturn(rows);
 
         List<TypedMap> result = new ArrayList<>();
         TypedMap line = new TypedMap();
@@ -99,7 +99,7 @@ public class NativeQueryTest {
     public void should_return_null_when_no_row() throws Exception {
 
         List<Row> rows = Arrays.asList(row);
-        when(daoContext.execute(any(SimpleStatementWrapper.class)).all()).thenReturn(rows);
+        when(daoContext.execute(any(SimpleStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().all()).thenReturn(rows);
 
         List<TypedMap> result = new ArrayList<>();
         when(mapper.mapRows(rows)).thenReturn(result);

@@ -71,7 +71,7 @@ public class CounterLoaderTest {
         when(context.getEntityMeta()).thenReturn(meta);
         when(context.getPrimaryKey()).thenReturn(primaryKey);
         when(overrider.getReadLevel(context)).thenReturn(ONE);
-        when(context.getClusteredCounter()).thenReturn(row);
+        when(context.getClusteredCounter().get()).thenReturn(row);
 
         when(meta.instanciate()).thenReturn(entity);
         when(meta.getIdMeta()).thenReturn(idMeta);

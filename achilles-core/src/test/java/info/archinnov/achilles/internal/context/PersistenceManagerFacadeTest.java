@@ -28,7 +28,6 @@ import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyZeroInteractions;
 import static org.mockito.Mockito.when;
-import java.util.Arrays;
 import java.util.List;
 import java.util.Set;
 import org.apache.commons.lang.math.RandomUtils;
@@ -181,11 +180,11 @@ public class PersistenceManagerFacadeTest {
     @Test
     public void should_find() throws Exception {
         //Given
-        when(loader.load(context.entityFacade, CompleteBean.class)).thenReturn(entity);
+        when(loader.load(context.entityFacade, CompleteBean.class).getImmediately()).thenReturn(entity);
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, context.entityFacade)).thenReturn(entity);
 
         //When
-        CompleteBean found = facade.find(CompleteBean.class);
+        CompleteBean found = facade.find(CompleteBean.class).getImmediately();
 
         //Then
         assertThat(found).isSameAs(entity);
@@ -194,9 +193,9 @@ public class PersistenceManagerFacadeTest {
 
     @Test
     public void should_return_null_when_not_found() throws Exception {
-        when(loader.load(context.entityFacade, CompleteBean.class)).thenReturn(null);
+        when(loader.load(context.entityFacade, CompleteBean.class).getImmediately()).thenReturn(null);
 
-        CompleteBean found = facade.find(CompleteBean.class);
+        CompleteBean found = facade.find(CompleteBean.class).getImmediately();
 
         assertThat(found).isNull();
         verifyZeroInteractions(proxifier);
@@ -207,7 +206,7 @@ public class PersistenceManagerFacadeTest {
         when(loader.createEmptyEntity(context.entityFacade, CompleteBean.class)).thenReturn(entity);
         when(proxifier.buildProxyWithNoFieldLoaded(entity, context.entityFacade)).thenReturn(entity);
 
-        CompleteBean found = facade.getProxy(CompleteBean.class);
+        CompleteBean found = facade.getProxy(CompleteBean.class).getImmediately();
 
         assertThat(found).isSameAs(entity);
     }

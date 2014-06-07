@@ -18,9 +18,10 @@ package info.archinnov.achilles.internal.statement.wrapper;
 
 import com.datastax.driver.core.ConsistencyLevel;
 import com.datastax.driver.core.RegularStatement;
-import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Session;
 import com.google.common.base.Optional;
+import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
 import info.archinnov.achilles.listener.CASResultListener;
 
 public class RegularStatementWrapper extends AbstractStatementWrapper {
@@ -36,18 +37,23 @@ public class RegularStatementWrapper extends AbstractStatementWrapper {
     }
 
     @Override
-    public ResultSet execute(Session session) {
-        logDMLStatement("");
-        activateQueryTracing(regularStatement);
-        ResultSet resultSet = session.execute(regularStatement);
-        tracing(resultSet);
-        checkForCASSuccess(regularStatement.getQueryString(), resultSet);
-        return resultSet;
+    public ResultSetFutureWrapper executeAsync(Session session) {
+        activateQueryTracing();
+        ResultSetFuture resultSet = session.executeAsync(regularStatement);
+        // logDMLStatement("");
+        //tracing(resultSet);
+        //checkForCASSuccess(regularStatement.getQueryString(), resultSet);
+        return new ResultSetFutureWrapper(resultSet, this);
     }
 
     @Override
     public RegularStatement getStatement() {
         return regularStatement;
+    }
+
+    @Override
+    public String getQueryString() {
+        return regularStatement.getQueryString();
     }
 
     @Override

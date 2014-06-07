@@ -19,7 +19,9 @@ import static info.archinnov.achilles.type.BoundingMode.EXCLUSIVE_BOUNDS;
 import static info.archinnov.achilles.type.ConsistencyLevel.EACH_QUORUM;
 import static info.archinnov.achilles.type.ConsistencyLevel.LOCAL_QUORUM;
 import static info.archinnov.achilles.type.OrderingMode.ASCENDING;
+import static java.util.Arrays.asList;
 import static org.fest.assertions.api.Assertions.assertThat;
+import static org.mockito.Mockito.RETURNS_DEEP_STUBS;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -36,7 +38,9 @@ import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.powermock.reflect.Whitebox;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
+import com.google.common.util.concurrent.FutureCallback;
 import info.archinnov.achilles.interceptor.Event;
 import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
@@ -102,6 +106,7 @@ public class SliceQueryExecutorTest {
     private List<Object> clusteringsTo = Arrays.<Object>asList("name2");
     private int limit = 98;
     private int batchSize = 99;
+    private FutureCallback<Object>[] asyncListeners = new FutureCallback[] { };
 
     @Before
     public void setUp() {
@@ -109,11 +114,11 @@ public class SliceQueryExecutorTest {
         when(context.getEntityFacade()).thenReturn(entityFacade);
         when(meta.getIdMeta()).thenReturn(idMeta);
 
-        when(idMeta.getComponentNames()).thenReturn(Arrays.asList("id", "name"));
+        when(idMeta.getComponentNames()).thenReturn(asList("id", "name"));
         when(idMeta.getComponentClasses()).thenReturn(Arrays.<Class<?>>asList(Long.class, String.class));
 
         sliceQuery = new SliceQuery<>(ClusteredEntity.class, meta, partitionComponents, clusteringsFrom, clusteringsTo,
-                ASCENDING, EXCLUSIVE_BOUNDS, LOCAL_QUORUM, limit, batchSize, true);
+                ASCENDING, EXCLUSIVE_BOUNDS, LOCAL_QUORUM, asyncListeners, limit, batchSize, true);
 
         Whitebox.setInternalState(executor, StatementGenerator.class, generator);
         Whitebox.setInternalState(executor, PersistenceContextFactory.class, contextFactory);
@@ -125,11 +130,15 @@ public class SliceQueryExecutorTest {
     public void should_get_clustered_entities() throws Exception {
 
         RegularStatementWrapper regularWrapper = mock(RegularStatementWrapper.class);
+        ResultSetFuture resultSetFuture = mock(ResultSetFuture.class, RETURNS_DEEP_STUBS);
         Row row = mock(Row.class);
-        List<Row> rows = Arrays.asList(row);
+        List<Row> rows = asList(row);
 
         when(generator.generateSelectSliceQuery(anySliceQuery())).thenReturn(regularWrapper);
-        when(daoContext.execute(regularWrapper).all()).thenReturn(rows);
+
+        when(resultSetFuture.getUninterruptibly().all()).thenReturn(asList(row));
+        when(daoContext.execute(regularWrapper).getResultSetFutures()).thenReturn(asList(resultSetFuture));
+        when(resultSetFuture.getUninterruptibly().all()).thenReturn(rows);
 
         when(meta.instanciate()).thenReturn(entity);
         when(contextFactory.newContext(entity)).thenReturn(context);
@@ -146,12 +155,15 @@ public class SliceQueryExecutorTest {
     public void should_create_iterator_for_clustered_entities() throws Exception {
         RegularStatementWrapper regularWrapper = mock(RegularStatementWrapper.class);
         when(generator.generateSelectSliceQuery(anySliceQuery())).thenReturn(regularWrapper);
-        when(daoContext.execute(regularWrapper).iterator()).thenReturn(iterator);
+        ResultSetFuture resultSetFuture = mock(ResultSetFuture.class, RETURNS_DEEP_STUBS);
+
+        when(daoContext.execute(regularWrapper).getResultSetFutures()).thenReturn(asList(resultSetFuture));
+        when(resultSetFuture.getUninterruptibly().iterator()).thenReturn(iterator);
 
         when(contextFactory.newContextForSliceQuery(ClusteredEntity.class, partitionComponents, LOCAL_QUORUM))
                 .thenReturn(context);
 
-        when(idMeta.getCQLComponentNames()).thenReturn(Arrays.asList("id", "comp1"));
+        when(idMeta.getCQLComponentNames()).thenReturn(asList("id", "comp1"));
         Iterator<ClusteredEntity> iter = executor.iterator(sliceQuery);
 
         assertThat(iter).isNotNull();
@@ -160,8 +172,8 @@ public class SliceQueryExecutorTest {
 
     @Test
     public void should_remove_clustered_entities() throws Exception {
-        sliceQuery = new SliceQuery<>(ClusteredEntity.class, meta, partitionComponents, Arrays.<Object>asList(),
-                Arrays.<Object>asList(), ASCENDING, EXCLUSIVE_BOUNDS, LOCAL_QUORUM, limit, batchSize, false);
+        sliceQuery = new SliceQuery<>(ClusteredEntity.class, meta, partitionComponents, asList(),
+                Arrays.<Object>asList(), ASCENDING, EXCLUSIVE_BOUNDS, LOCAL_QUORUM, asyncListeners, limit, batchSize, false);
 
         RegularStatementWrapper regularWrapper = mock(RegularStatementWrapper.class);
         when(generator.generateRemoveSliceQuery(anySliceQuery())).thenReturn(regularWrapper);

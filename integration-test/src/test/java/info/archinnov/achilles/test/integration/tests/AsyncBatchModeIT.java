@@ -22,6 +22,8 @@ import static info.archinnov.achilles.type.ConsistencyLevel.QUORUM;
 import static org.fest.assertions.api.Assertions.assertThat;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.lang.math.RandomUtils;
 import org.junit.Before;
 import org.junit.Rule;
@@ -33,9 +35,10 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.SimpleStatement;
 import com.datastax.driver.core.Statement;
 import com.google.common.collect.ImmutableMap;
+import com.google.common.util.concurrent.FutureCallback;
 import info.archinnov.achilles.configuration.ConfigurationParameters;
 import info.archinnov.achilles.embedded.CassandraEmbeddedServerBuilder;
-import info.archinnov.achilles.exception.AchillesException;
+import info.archinnov.achilles.internal.async.Empty;
 import info.archinnov.achilles.internal.context.BatchingFlushContext;
 import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
 import info.archinnov.achilles.junit.AchillesTestResource.Steps;
@@ -51,9 +54,8 @@ import info.archinnov.achilles.test.integration.entity.Tweet;
 import info.archinnov.achilles.test.integration.entity.User;
 import info.archinnov.achilles.test.integration.utils.CassandraLogAsserter;
 import info.archinnov.achilles.type.ConsistencyLevel;
-import info.archinnov.achilles.type.OptionsBuilder;
 
-public class BatchModeIT {
+public class AsyncBatchModeIT {
 
     @Rule
     public ExpectedException expectedEx = ExpectedException.none();
@@ -86,7 +88,7 @@ public class BatchModeIT {
     }
 
     @Test
-    public void should_batch_counters() throws Exception {
+    public void should_batch_counters_async() throws Exception {
         // Start batch
         BatchingPersistenceManager batchEm = pmf.createBatchingPersistenceManager();
         batchEm.startBatch();
@@ -103,34 +105,96 @@ public class BatchModeIT {
         entity.getVersion().incr(10L);
         batchEm.update(entity);
 
-        Map<String, Object> result = manager.nativeQuery("SELECT label from CompleteBean where id=" + entity.getId())
-                .first();
+        Map<String, Object> result = manager.nativeQuery("SELECT label from CompleteBean where id=" + entity.getId()).first();
         assertThat(result).isNull();
 
-        result = manager.nativeQuery(
-                "SELECT counter_value from achilles_counter_table where fqcn='" + CompleteBean.class.getCanonicalName()
-                        + "' and primary_key='" + entity.getId() + "' and property_name='version'").first();
+        result = manager.nativeQuery("SELECT counter_value from achilles_counter_table where fqcn='" + CompleteBean.class.getCanonicalName()
+                + "' and primary_key='" + entity.getId() + "' and property_name='version'").first();
         assertThat(result).isNull();
+
+        final CountDownLatch latch = new CountDownLatch(2);
+        final AtomicReference<Object> successSpy = new AtomicReference<>();
+        final AtomicReference<Throwable> exceptionSpy = new AtomicReference<>();
+
+        FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
+            @Override
+            public void onSuccess(Object result) {
+                successSpy.getAndSet(result);
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                latch.countDown();
+            }
+        };
+
+        FutureCallback<Object> errorCallBack = new FutureCallback<Object>() {
+            @Override
+            public void onSuccess(Object result) {
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                exceptionSpy.getAndSet(t);
+                latch.countDown();
+            }
+        };
 
         // Flush
-        batchEm.flushBatch();
+        batchEm.asyncFlushBatch(successCallBack, errorCallBack);
+
+        latch.await();
 
         Statement statement = new SimpleStatement("SELECT label from CompleteBean where id=" + entity.getId());
         Row row = manager.getNativeSession().execute(statement).one();
         assertThat(row.getString("label")).isEqualTo("label");
 
-        result = manager.nativeQuery(
-                "SELECT counter_value from achilles_counter_table where fqcn='" + CompleteBean.class.getCanonicalName()
-                        + "' and primary_key='" + entity.getId() + "' and property_name='version'").first();
+        result = manager.nativeQuery("SELECT counter_value from achilles_counter_table where fqcn='" + CompleteBean.class.getCanonicalName()
+                + "' and primary_key='" + entity.getId() + "' and property_name='version'").first();
         assertThat(result.get("counter_value")).isEqualTo(10L);
         assertThatBatchContextHasBeenReset(batchEm);
+
+        assertThat(successSpy.get()).isNotNull().isSameAs(Empty.INSTANCE);
+        assertThat(exceptionSpy.get()).isNull();
     }
 
     @Test
-    public void should_batch_several_entities() throws Exception {
+    public void should_batch_several_entities_async() throws Exception {
         CompleteBean bean = CompleteBeanTestBuilder.builder().randomId().name("name").buid();
         Tweet tweet1 = TweetTestBuilder.tweet().randomId().content("tweet1").buid();
         Tweet tweet2 = TweetTestBuilder.tweet().randomId().content("tweet2").buid();
+
+        final CountDownLatch latch = new CountDownLatch(2);
+        final AtomicReference<Object> successSpy = new AtomicReference<>();
+        final AtomicReference<Throwable> exceptionSpy = new AtomicReference<>();
+
+        FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
+            @Override
+            public void onSuccess(Object result) {
+                successSpy.getAndSet(result);
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                latch.countDown();
+            }
+        };
+
+        FutureCallback<Object> errorCallBack = new FutureCallback<Object>() {
+            @Override
+            public void onSuccess(Object result) {
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                exceptionSpy.getAndSet(t);
+                latch.countDown();
+            }
+        };
 
         // Start batch
         BatchingPersistenceManager batchEm = pmf.createBatchingPersistenceManager();
@@ -152,7 +216,9 @@ public class BatchModeIT {
         assertThat(foundUser).isNull();
 
         // Flush
-        batchEm.flushBatch();
+        batchEm.asyncFlushBatch(successCallBack, errorCallBack);
+
+        latch.await();
 
         final ResultSet resultSet = manager.getNativeSession().execute("SELECT id,favoriteTweets,followers,friends,age_in_years,name,welcomeTweet,label,preferences FROM CompleteBean WHERE id=:id", bean.getId());
         assertThat(resultSet.all()).hasSize(1);
@@ -168,56 +234,36 @@ public class BatchModeIT {
         assertThat(foundUser.getFirstname()).isEqualTo("fn");
         assertThat(foundUser.getLastname()).isEqualTo("ln");
         assertThatBatchContextHasBeenReset(batchEm);
+
+        assertThat(successSpy.get()).isNotNull().isSameAs(Empty.INSTANCE);
+        assertThat(exceptionSpy.get()).isNull();
     }
 
     @Test
-    public void should_reinit_batch_context_after_exception() throws Exception {
-        User user = UserTestBuilder.user().id(123456494L).firstname("firstname").lastname("lastname").buid();
-        Tweet tweet = TweetTestBuilder.tweet().randomId().content("simple_tweet").creator(user).buid();
-
-        // Start batch
-        BatchingPersistenceManager batchEm = pmf.createBatchingPersistenceManager();
-        batchEm.startBatch();
-
-        try {
-            batchEm.persist(tweet, OptionsBuilder.withConsistency(ConsistencyLevel.EACH_QUORUM));
-        } catch (AchillesException e) {
-            batchEm.cleanBatch();
-            assertThatBatchContextHasBeenReset(batchEm);
-
-            assertThat(batchEm.find(Tweet.class, tweet.getId())).isNull();
-        }
-
-        // batchEm should reinit batch context
-        batchEm.persist(user);
-        batchEm.flushBatch();
-
-        User foundUser = batchEm.find(User.class, user.getId());
-        assertThat(foundUser.getFirstname()).isEqualTo("firstname");
-        assertThat(foundUser.getLastname()).isEqualTo("lastname");
-
-        batchEm.persist(tweet);
-        batchEm.flushBatch();
-
-        Tweet foundTweet = batchEm.find(Tweet.class, tweet.getId());
-        assertThat(foundTweet.getContent()).isEqualTo("simple_tweet");
-        assertThat(foundTweet.getCreator().getId()).isEqualTo(foundUser.getId());
-        assertThat(foundTweet.getCreator().getFirstname()).isEqualTo("firstname");
-        assertThat(foundTweet.getCreator().getLastname()).isEqualTo("lastname");
-        assertThatBatchContextHasBeenReset(batchEm);
-    }
-
-    @Test
-    public void should_batch_with_custom_consistency_level() throws Exception {
+    public void should_batch_with_custom_consistency_level_async() throws Exception {
         Tweet tweet1 = TweetTestBuilder.tweet().randomId().content("simple_tweet1").buid();
         Tweet tweet2 = TweetTestBuilder.tweet().randomId().content("simple_tweet2").buid();
         Tweet tweet3 = TweetTestBuilder.tweet().randomId().content("simple_tweet3").buid();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Object> successSpy = new AtomicReference<>();
+        FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
+            @Override
+            public void onSuccess(Object result) {
+                successSpy.getAndSet(result);
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                latch.countDown();
+            }
+        };
 
         manager.persist(tweet1);
 
         // Start batch
         BatchingPersistenceManager batchEm = pmf.createBatchingPersistenceManager();
-        batchEm.startBatch();
 
         batchEm.startBatch(QUORUM);
 
@@ -230,33 +276,50 @@ public class BatchModeIT {
         batchEm.persist(tweet2);
         batchEm.persist(tweet3);
 
-        batchEm.flushBatch();
+        batchEm.asyncFlushBatch(successCallBack);
+
+        latch.await();
 
         logAsserter.assertConsistencyLevels(QUORUM, QUORUM);
         assertThatBatchContextHasBeenReset(batchEm);
+
+        assertThat(successSpy.get()).isSameAs(Empty.INSTANCE);
     }
 
     @Test
-    public void should_reinit_batch_context_and_consistency_after_exception() throws Exception {
+    public void should_reinit_batch_context_and_consistency_after_exception_async() throws Exception {
         Tweet tweet1 = TweetTestBuilder.tweet().randomId().content("simple_tweet1").buid();
         Tweet tweet2 = TweetTestBuilder.tweet().randomId().content("simple_tweet2").buid();
+
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Object> successSpy = new AtomicReference<>();
+        FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
+            @Override
+            public void onSuccess(Object result) {
+                successSpy.getAndSet(result);
+                latch.countDown();
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
+                latch.countDown();
+            }
+        };
 
         manager.persist(tweet1);
 
         // Start batch
         BatchingPersistenceManager batchEm = pmf.createBatchingPersistenceManager();
-        batchEm.startBatch();
 
         batchEm.startBatch(EACH_QUORUM);
         batchEm.persist(tweet2);
 
-        try {
-            batchEm.flushBatch();
-        } catch (Exception e) {
-            assertThatBatchContextHasBeenReset(batchEm);
-        }
+        batchEm.asyncFlushBatch(successCallBack);
 
-        Thread.sleep(1000);
+        latch.await();
+
+        assertThatBatchContextHasBeenReset(batchEm);
+
         logAsserter.prepareLogLevel();
         batchEm.persist(tweet2);
         batchEm.flushBatch();
@@ -264,7 +327,7 @@ public class BatchModeIT {
     }
 
     @Test
-    public void should_order_batch_operations_on_the_same_column_with_insert_and_update() throws Exception {
+    public void should_order_batch_operations_on_the_same_column_with_insert_and_update_async() throws Exception {
         //Given
         CompleteBean entity = CompleteBeanTestBuilder.builder().randomId().name("name").buid();
         final BatchingPersistenceManager batchPM = pmf2.createBatchingPersistenceManager();
@@ -276,7 +339,7 @@ public class BatchModeIT {
         entity.setLabel("label");
         batchPM.update(entity);
 
-        batchPM.flushBatch();
+        batchPM.asyncFlushBatch().get();
 
         //Then
         Statement statement = new SimpleStatement("SELECT label from CompleteBean where id=" + entity.getId());
@@ -286,7 +349,7 @@ public class BatchModeIT {
 
 
     @Test
-    public void should_order_batch_operations_on_the_same_column() throws Exception {
+    public void should_order_batch_operations_on_the_same_column_async() throws Exception {
         //Given
         CompleteBean entity = CompleteBeanTestBuilder.builder().randomId().name("name1000").buid();
         final BatchingPersistenceManager batchPM = pmf2.createBatchingPersistenceManager();
@@ -298,7 +361,7 @@ public class BatchModeIT {
         entity.setName("name");
         batchPM.update(entity);
 
-        batchPM.flushBatch();
+        batchPM.asyncFlushBatch().get();
 
         //Then
         Statement statement = new SimpleStatement("SELECT name from CompleteBean where id=" + entity.getId());

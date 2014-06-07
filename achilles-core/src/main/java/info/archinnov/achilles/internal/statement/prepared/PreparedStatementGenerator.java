@@ -111,7 +111,7 @@ public class PreparedStatementGenerator {
         PropertyMeta idMeta = entityMeta.getIdMeta();
         Update update = update(entityMeta.getTableName());
         final Update.Conditions updateConditions = update.onlyIf();
-        if (options.hasCasConditions()) {
+        if (options.hasCASConditions()) {
             for (CASCondition CASCondition : options.getCASConditions()) {
                 updateConditions.and(CASCondition.toClauseForPreparedStatement());
             }
@@ -322,7 +322,7 @@ public class PreparedStatementGenerator {
 
         final Update.Conditions conditions = update(meta.getTableName()).onlyIf();
 
-        if (options.hasCasConditions()) {
+        if (options.hasCASConditions()) {
             for (CASCondition CASCondition : options.getCASConditions()) {
                 conditions.and(CASCondition.toClauseForPreparedStatement());
             }

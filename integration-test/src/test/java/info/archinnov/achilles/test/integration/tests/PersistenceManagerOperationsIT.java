@@ -53,10 +53,8 @@ public class PersistenceManagerOperationsIT {
 
         manager.persist(entity);
 
-        Row row = session
-                .execute(
-                        "select name,age_in_years,friends,followers,preferences from completebean where id = "
-                                + entity.getId()).one();
+        Row row = session.execute("select name,age_in_years,friends,followers,preferences from completebean where id = "
+                + entity.getId()).one();
 
         assertThat(row.getLong("age_in_years")).isEqualTo(35L);
         assertThat(row.getList("friends", String.class)).containsExactly("foo", "bar");
@@ -136,15 +134,13 @@ public class PersistenceManagerOperationsIT {
         CompleteBean entity = CompleteBeanTestBuilder.builder().randomId().name("Jonathan").age(40L)
                 .addFriends("bob", "alice").addFollowers("Billy", "Stephen", "Jacky").addPreference(1, "US")
                 .addPreference(2, "New York").buid();
-        manager.persist(entity);
+        CompleteBean managed = manager.persist(entity);
 
-        CompleteBean found = manager.find(CompleteBean.class, entity.getId());
+        managed.setAge(100L);
+        managed.getFriends().add("eve");
+        managed.getPreferences().put(1, "FR");
 
-        found.setAge(100L);
-        found.getFriends().add("eve");
-        found.getPreferences().put(1, "FR");
-
-        manager.update(found);
+        manager.update(managed);
 
         Row row = session.execute("select * from completebean where id=" + entity.getId()).one();
 
@@ -313,7 +309,7 @@ public class PersistenceManagerOperationsIT {
         assertThat(entity.getFriends().get(2)).isEqualTo("qux");
     }
 
-    @Test(expected = AchillesStaleObjectStateException.class)
+    @Test
     public void should_exception_when_staled_object_during_refresh() throws Exception {
 
         CompleteBean entity = CompleteBeanTestBuilder.builder().randomId().name("DuyHai").buid();
@@ -321,6 +317,8 @@ public class PersistenceManagerOperationsIT {
         entity = manager.persist(entity);
 
         session.execute("DELETE FROM completebean WHERE id=" + entity.getId());
+
+        exception.expect(AchillesStaleObjectStateException.class);
 
         manager.refresh(entity);
     }

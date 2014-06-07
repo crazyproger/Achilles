@@ -14,17 +14,8 @@
  *  limitations under the License.
  */
 
-package info.archinnov.achilles.internal.context.facade;
+package info.archinnov.achilles.internal.async;
 
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
-import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
-
-public interface DaoOperations extends PersistentStateHolder {
-
-    public void pushStatement(AbstractStatementWrapper statementWrapper);
-
-    public void pushCounterStatement(AbstractStatementWrapper statementWrapper);
-
-    public ResultSetFutureWrapper executeImmediate(AbstractStatementWrapper bsWrapper);
-
+public enum Empty {
+    INSTANCE;
 }

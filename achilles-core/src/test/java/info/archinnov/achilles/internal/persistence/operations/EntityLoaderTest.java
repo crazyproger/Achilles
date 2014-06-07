@@ -87,11 +87,11 @@ public class EntityLoaderTest {
         // Given
         Row row = mock(Row.class);
         when(meta.isClusteredCounter()).thenReturn(false);
-        when(context.loadEntity()).thenReturn(row);
+        when(context.loadEntity().get()).thenReturn(row);
         when(meta.instanciate()).thenReturn(entity);
 
         // When
-        CompleteBean actual = loader.load(context, CompleteBean.class);
+        CompleteBean actual = loader.load(context, CompleteBean.class).get();
 
         // Then
         assertThat(actual).isSameAs(entity);
@@ -107,7 +107,7 @@ public class EntityLoaderTest {
         when(meta.instanciate()).thenReturn(entity);
 
         // When
-        CompleteBean actual = loader.load(context, CompleteBean.class);
+        CompleteBean actual = loader.load(context, CompleteBean.class).getImmediately();
 
         // Then
         assertThat(actual).isNull();
@@ -119,10 +119,10 @@ public class EntityLoaderTest {
     public void should_load_clustered_counter_entity() throws Exception {
         // Given
         when(meta.isClusteredCounter()).thenReturn(true);
-        when(counterLoader.loadClusteredCounters(context)).thenReturn(entity);
+        when(counterLoader.loadClusteredCounters(context).getImmediately()).thenReturn(entity);
 
         // When
-        CompleteBean actual = loader.load(context, CompleteBean.class);
+        CompleteBean actual = loader.load(context, CompleteBean.class).getImmediately();
 
         // Then
         assertThat(actual).isSameAs(entity);

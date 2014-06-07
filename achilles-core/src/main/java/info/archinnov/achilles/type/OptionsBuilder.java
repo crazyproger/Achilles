@@ -19,6 +19,7 @@ import static info.archinnov.achilles.type.Options.CASCondition;
 import java.util.Arrays;
 import java.util.List;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.FutureCallback;
 import info.archinnov.achilles.listener.CASResultListener;
 
 public class OptionsBuilder {
@@ -51,6 +52,10 @@ public class OptionsBuilder {
 
     public static InternalOptionsBuilder casResultListener(CASResultListener listener) {
         return new InternalOptionsBuilder(listener);
+    }
+
+    public static InternalOptionsBuilder withAsyncListeners(FutureCallback<Object>... listeners) {
+        return new InternalOptionsBuilder(listeners);
     }
 
     public static class NoOptions extends Options {
@@ -86,7 +91,10 @@ public class OptionsBuilder {
 
         protected InternalOptionsBuilder(CASResultListener listener) {
             super.casResultListenerO = Optional.fromNullable(listener);
+        }
 
+        protected InternalOptionsBuilder(FutureCallback<Object>... listeners) {
+            super.asyncListeners = Arrays.asList(listeners);
         }
 
 
@@ -127,6 +135,11 @@ public class OptionsBuilder {
 
         public InternalOptionsBuilder ifConditions(List<CASCondition> CASConditions) {
             super.CASConditions = CASConditions;
+            return this;
+        }
+
+        public InternalOptionsBuilder withAsyncListeners(FutureCallback<Object>... listeners) {
+            super.asyncListeners = Arrays.asList(listeners);
             return this;
         }
     }

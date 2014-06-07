@@ -18,6 +18,10 @@ package info.archinnov.achilles.internal.persistence.operations;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.Row;
+import com.google.common.base.Function;
+import com.google.common.util.concurrent.Futures;
+import info.archinnov.achilles.async.AchillesFuture;
+import info.archinnov.achilles.internal.async.WrapperToFuture;
 import info.archinnov.achilles.internal.context.facade.EntityOperations;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
@@ -31,29 +35,35 @@ public class EntityLoader {
     private EntityMapper mapper = new EntityMapper();
     private CounterLoader counterLoader = new CounterLoader();
 
-    public <T> T load(EntityOperations context, Class<T> entityClass) {
+    public <T> AchillesFuture<T> load(EntityOperations context, Class<T> entityClass) {
         log.debug("Loading entity of class {} using PersistenceContext {}", entityClass, context);
-        EntityMeta entityMeta = context.getEntityMeta();
+        final EntityMeta entityMeta = context.getEntityMeta();
         Object primaryKey = context.getPrimaryKey();
 
         Validator.validateNotNull(entityClass, "Entity class should not be null");
         Validator.validateNotNull(primaryKey, "Entity '%s' key should not be null", entityClass.getCanonicalName());
-        Validator
-                .validateNotNull(entityMeta, "Entity meta for '%s' should not be null", entityClass.getCanonicalName());
+        Validator.validateNotNull(entityMeta, "Entity meta for '%s' should not be null", entityClass.getCanonicalName());
 
-        T entity = null;
+        AchillesFuture<T> futureEntity;
 
         if (entityMeta.isClusteredCounter()) {
-            entity = counterLoader.loadClusteredCounters(context);
+            futureEntity = new AchillesFuture(counterLoader.loadClusteredCounters(context));
         } else {
-            Row row = context.loadEntity();
-            if (row != null) {
-                entity = entityMeta.instanciate();
-                mapper.setNonCounterPropertiesToEntity(row, entityMeta, entity);
-            }
+            final WrapperToFuture<Row> wrapperToFuture = context.loadEntity();
+            Function<Row, T> rowToEntity = new Function<Row, T>() {
+                @Override
+                public T apply(Row row) {
+                    T entity = null;
+                    if (row != null) {
+                        entity = entityMeta.instanciate();
+                        mapper.setNonCounterPropertiesToEntity(row, entityMeta, entity);
+                    }
+                    return entity;
+                }
+            };
+            futureEntity = new AchillesFuture(Futures.transform(wrapperToFuture, rowToEntity, context.getExecutorService()));
         }
-
-        return entity;
+        return futureEntity;
     }
 
     public <T> T createEmptyEntity(EntityOperations context, Class<T> entityClass) {
@@ -63,8 +73,7 @@ public class EntityLoader {
 
         Validator.validateNotNull(entityClass, "Entity class should not be null");
         Validator.validateNotNull(primaryKey, "Entity '%s' key should not be null", entityClass.getCanonicalName());
-        Validator
-                .validateNotNull(entityMeta, "Entity meta for '%s' should not be null", entityClass.getCanonicalName());
+        Validator.validateNotNull(entityMeta, "Entity meta for '%s' should not be null", entityClass.getCanonicalName());
 
         T entity = entityMeta.instanciate();
         entityMeta.getIdMeta().setValueToField(entity, primaryKey);

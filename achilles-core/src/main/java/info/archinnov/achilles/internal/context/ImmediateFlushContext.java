@@ -15,61 +15,62 @@
  */
 package info.archinnov.achilles.internal.context;
 
-import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
-import info.archinnov.achilles.interceptor.Event;
-import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
-import info.archinnov.achilles.type.ConsistencyLevel;
-
 import java.util.List;
-
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.BatchStatement;
+import info.archinnov.achilles.interceptor.Event;
+import info.archinnov.achilles.internal.async.Empty;
+import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
+import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
+import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
+import info.archinnov.achilles.type.ConsistencyLevel;
 
 public class ImmediateFlushContext extends AbstractFlushContext {
-	private static final Logger log = LoggerFactory.getLogger(ImmediateFlushContext.class);
+    private static final Logger log = LoggerFactory.getLogger(ImmediateFlushContext.class);
 
-	public ImmediateFlushContext(DaoContext daoContext, ConsistencyLevel consistencyLevel) {
-		super(daoContext, consistencyLevel);
-	}
+    public ImmediateFlushContext(DaoContext daoContext, ConsistencyLevel consistencyLevel) {
+        super(daoContext, consistencyLevel);
+    }
 
-	private ImmediateFlushContext(DaoContext daoContext, List<AbstractStatementWrapper> statementWrappers,
-			ConsistencyLevel consistencyLevel) {
-		super(daoContext, statementWrappers, consistencyLevel);
-	}
+    private ImmediateFlushContext(DaoContext daoContext, List<AbstractStatementWrapper> statementWrappers,
+            ConsistencyLevel consistencyLevel) {
+        super(daoContext, statementWrappers, consistencyLevel);
+    }
 
-	@Override
-	public void startBatch() {
-		throw new UnsupportedOperationException(
-				"Cannot start a batch with a normal PersistenceManager. Please create a BatchingPersistenceManager instead");
-	}
+    @Override
+    public void startBatch() {
+        throw new UnsupportedOperationException("Cannot start a batch with a normal PersistenceManager. Please create a Batch instead");
+    }
 
-	@Override
-	public void endBatch() {
-		throw new UnsupportedOperationException(
-				"Cannot end a batch with a normal PersistenceManager. Please create a BatchingPersistenceManager instead");
-	}
+    @Override
+    public WrapperToFuture<Empty> flushBatch() {
+        throw new UnsupportedOperationException("Cannot end a batch with a normal PersistenceManager. Please create a Batch instead");
+    }
 
-	@Override
-	public void flush() {
-		log.debug("Flush immediately all pending statements");
-        executeBatch(BatchStatement.Type.UNLOGGED, statementWrappers);
-        executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers);
-	}
+    @Override
+    public ResultSetFutureWrapper flush() {
+        log.debug("Flush immediately all pending statements");
 
-	@Override
-	public FlushType type() {
-		return FlushType.IMMEDIATE;
-	}
+        return ResultSetFutureWrapper.merge(
+                executeBatch(BatchStatement.Type.UNLOGGED, statementWrappers),
+                executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers));
+    }
 
-	@Override
-	public ImmediateFlushContext duplicate() {
-		log.trace("Duplicate immediate flushing context");
-		return new ImmediateFlushContext(daoContext, statementWrappers, consistencyLevel);
-	}
+    @Override
+    public FlushType type() {
+        return FlushType.IMMEDIATE;
+    }
+
+    @Override
+    public ImmediateFlushContext duplicate() {
+        log.trace("Duplicate immediate flushing context");
+        return new ImmediateFlushContext(daoContext, statementWrappers, consistencyLevel);
+    }
 
     @Override
     public void triggerInterceptor(EntityMeta meta, Object entity, Event event) {
-        meta.intercept(entity,event);
+        meta.intercept(entity, event);
     }
 }

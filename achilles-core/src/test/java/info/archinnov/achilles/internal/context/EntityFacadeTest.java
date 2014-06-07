@@ -85,9 +85,9 @@ public class EntityFacadeTest {
     @Test
     public void should_eager_load_entity() throws Exception {
         Row row = mock(Row.class);
-        when(daoContext.loadEntity(context.daoFacade)).thenReturn(row);
+        when(daoContext.loadEntity(context.daoFacade).get()).thenReturn(row);
 
-        assertThat(facade.loadEntity()).isSameAs(row);
+        assertThat(facade.loadEntity().get()).isSameAs(row);
     }
 
     @Test
@@ -151,9 +151,7 @@ public class EntityFacadeTest {
     public void should_get_simple_counter() throws Exception {
         PropertyMeta counterMeta = new PropertyMeta();
 
-        Row row = mock(Row.class);
-        when(daoContext.getSimpleCounter(context.daoFacade, counterMeta, LOCAL_QUORUM)).thenReturn(row);
-        when(row.getLong(CQL_COUNTER_VALUE)).thenReturn(11L);
+        when(daoContext.getSimpleCounter(context.daoFacade, counterMeta, LOCAL_QUORUM)).thenReturn(11L);
 
         Long counterValue = facade.getSimpleCounter(counterMeta, LOCAL_QUORUM);
 

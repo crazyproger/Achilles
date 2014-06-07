@@ -16,7 +16,6 @@
 
 package info.archinnov.achilles.internal.statement.wrapper;
 
-import static com.datastax.driver.core.BatchStatement.Type.LOGGED;
 import static com.datastax.driver.core.ColumnDefinitions.Definition;
 import static info.archinnov.achilles.listener.CASResultListener.CASResult;
 import static info.archinnov.achilles.listener.CASResultListener.CASResult.Operation;
@@ -32,6 +31,7 @@ import org.apache.commons.lang.ArrayUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.ExecutionInfo;
 import com.datastax.driver.core.QueryTrace;
 import com.datastax.driver.core.ResultSet;
@@ -40,6 +40,7 @@ import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
 import com.google.common.base.Optional;
 import info.archinnov.achilles.exception.AchillesCASException;
+import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
 import info.archinnov.achilles.internal.reflection.RowMethodInvoker;
 import info.archinnov.achilles.listener.CASResultListener;
 import info.archinnov.achilles.type.ConsistencyLevel;
@@ -78,41 +79,57 @@ public abstract class AbstractStatementWrapper {
         return values;
     }
 
-    public abstract ResultSet execute(Session session);
+    public abstract String getQueryString();
+
+    public abstract ResultSetFutureWrapper executeAsync(Session session);
 
     public abstract Statement getStatement();
 
     public abstract void logDMLStatement(String indentation);
 
     public static void writeDMLStartBatch(BatchStatement.Type batchType) {
-        if (dmlLogger.isDebugEnabled()) {
-            if (batchType == LOGGED) {
+        switch (batchType) {
+            case LOGGED:
                 dmlLogger.debug("");
                 dmlLogger.debug("");
-                dmlLogger.debug("****** BATCH LOGGED START ******");
+                dmlLogger.debug("****** START LOGGED BATCH ******");
                 dmlLogger.debug("");
-            } else {
+                break;
+            case UNLOGGED:
                 dmlLogger.debug("");
                 dmlLogger.debug("");
-                dmlLogger.debug("****** BATCH UNLOGGED START ******");
+                dmlLogger.debug("****** START LOGGED BATCH ******");
                 dmlLogger.debug("");
-            }
+                break;
+            case COUNTER:
+                dmlLogger.debug("");
+                dmlLogger.debug("");
+                dmlLogger.debug("****** START COUNTER BATCH ******");
+                dmlLogger.debug("");
+                break;
         }
     }
 
     public static void writeDMLEndBatch(BatchStatement.Type batchType, ConsistencyLevel consistencyLevel) {
-        if (dmlLogger.isDebugEnabled()) {
-            if (batchType == LOGGED) {
+        switch (batchType) {
+            case LOGGED:
                 dmlLogger.debug("");
-                dmlLogger.debug("  ****** BATCH LOGGED END with CONSISTENCY LEVEL [{}] ******", consistencyLevel != null ? consistencyLevel : "DEFAULT");
-                dmlLogger.debug("");
-                dmlLogger.debug("");
-            } else {
-                dmlLogger.debug("");
-                dmlLogger.debug("  ****** BATCH UNLOGGED END with CONSISTENCY LEVEL [{}] ******", consistencyLevel != null ? consistencyLevel : "DEFAULT");
+                dmlLogger.debug("  ****** APPLY LOGGED BATCH with CONSISTENCY LEVEL [{}] ******", consistencyLevel != null ? consistencyLevel : "DEFAULT");
                 dmlLogger.debug("");
                 dmlLogger.debug("");
-            }
+                break;
+            case UNLOGGED:
+                dmlLogger.debug("");
+                dmlLogger.debug("  ****** APPLY UNLOGGED BATCH with CONSISTENCY LEVEL [{}] ******", consistencyLevel != null ? consistencyLevel : "DEFAULT");
+                dmlLogger.debug("");
+                dmlLogger.debug("");
+                break;
+            case COUNTER:
+                dmlLogger.debug("");
+                dmlLogger.debug("  ****** APPLY COUNTER BATCH with CONSISTENCY LEVEL [{}] ******", consistencyLevel != null ? consistencyLevel : "DEFAULT");
+                dmlLogger.debug("");
+                dmlLogger.debug("");
+                break;
         }
     }
 
@@ -135,15 +152,32 @@ public abstract class AbstractStatementWrapper {
         return queryString.contains(IF_CLAUSE);
     }
 
-    protected void checkForCASSuccess(String queryString, ResultSet resultSet) {
+    public void checkForCASSuccess(String queryString, ResultSet resultSet) {
 
         if (isCASOperation(queryString)) {
             final Row casResult = resultSet.one();
-            if (!casResult.getBool(CAS_RESULT_COLUMN)) {
+            if (casResult != null && !casResult.getBool(CAS_RESULT_COLUMN)) {
                 TreeMap<String, Object> currentValues = new TreeMap<>();
                 for (Definition columnDef : casResult.getColumnDefinitions()) {
                     final String columnDefName = columnDef.getName();
-                    final Object columnValue = invoker.invokeOnRowForType(casResult, columnDef.getType().asJavaClass(), columnDefName);
+                    final DataType dataType = columnDef.getType();
+                    final DataType.Name name = dataType.getName();
+
+                    Object columnValue;
+                    switch (name) {
+                        case LIST:
+                            columnValue = casResult.getList(columnDefName, dataType.getTypeArguments().get(0).asJavaClass());
+                            break;
+                        case SET:
+                            columnValue = casResult.getSet(columnDefName, dataType.getTypeArguments().get(0).asJavaClass());
+                            break;
+                        case MAP:
+                            final List<DataType> typeArguments = dataType.getTypeArguments();
+                            columnValue = casResult.getMap(columnDefName, typeArguments.get(0).asJavaClass(), typeArguments.get(1).asJavaClass());
+                            break;
+                        default:
+                            columnValue = invoker.invokeOnRowForType(casResult, name.asJavaClass(), columnDefName);
+                    }
                     currentValues.put(columnDefName, columnValue);
                 }
 
@@ -173,21 +207,26 @@ public abstract class AbstractStatementWrapper {
         }
     }
 
-    protected Statement activateQueryTracing(Statement statement) {
-        if (dmlLogger.isTraceEnabled() || traceQueryForEntity) {
-            statement.enableTracing();
+    public void activateQueryTracing() {
+        if (isTracingEnabled()) {
+            getStatement().enableTracing();
         }
-        return statement;
     }
 
-    protected void tracing(ResultSet resultSet) {
-        if (dmlLogger.isTraceEnabled() || traceQueryForEntity) {
+    public boolean isTracingEnabled() {
+        return dmlLogger.isTraceEnabled() || traceQueryForEntity;
+    }
+
+    public void tracing(ResultSet resultSet) {
+        if (isTracingEnabled()) {
             Logger actualLogger = traceQueryForEntity ? entityLogger : dmlLogger;
             for (ExecutionInfo executionInfo : resultSet.getAllExecutionInfo()) {
+
                 actualLogger.trace("Query tracing at host {} with achieved consistency level {} ", executionInfo.getQueriedHost(), executionInfo.getAchievedConsistencyLevel());
                 actualLogger.trace("****************************");
                 actualLogger.trace(String.format("%1$-80s | %2$-16s | %3$-24s | %4$-20s", "Description", "Source", "Source elapsed in micros", "Thread name"));
-                final List<QueryTrace.Event> events = new ArrayList<>(executionInfo.getQueryTrace().getEvents());
+                final QueryTrace queryTrace = executionInfo.getQueryTrace();
+                final List<QueryTrace.Event> events = new ArrayList<>(queryTrace.getEvents());
                 Collections.sort(events, EVENT_TRACE_COMPARATOR);
                 for (QueryTrace.Event event : events) {
                     final String formatted = String.format("%1$-80s | %2$-16s | %3$-24s | %4$-20s", event.getDescription(), event.getSource(), event.getSourceElapsedMicros(), event.getThreadName());

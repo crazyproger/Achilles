@@ -154,7 +154,8 @@ public class EventInterceptorIT {
     private List<Interceptor<CompleteBean>> postRemoveInterceptors = Arrays.asList(postRemove);
 
     private PersistenceManagerFactory pmf = CassandraEmbeddedServerBuilder
-            .withEntityPackages(CompleteBean.class.getPackage().getName()).withKeyspaceName("interceptor_keyspace1")
+            .withEntities(CompleteBean.class)
+            .withKeyspaceName("interceptor_keyspace1")
             .withAchillesConfigParams(ImmutableMap.of(EVENT_INTERCEPTORS, interceptors, FORCE_TABLE_CREATION, true))
             .buildPersistenceManagerFactory();
 
@@ -258,7 +259,7 @@ public class EventInterceptorIT {
         assertThat(entity.getLabel()).isEqualTo("label");
 
         // When
-        batchingPM.endBatch();
+        batchingPM.flushBatch();
 
         // Then
         assertThat(entity.getName()).isEqualTo("prePersist");

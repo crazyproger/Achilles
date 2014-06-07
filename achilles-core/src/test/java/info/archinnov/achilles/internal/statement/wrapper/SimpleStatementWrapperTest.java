@@ -51,7 +51,7 @@ public class SimpleStatementWrapperTest {
         wrapper = new SimpleStatementWrapper("SELECT", values, noListener);
 
         //When
-        wrapper.execute(session);
+        wrapper.executeAsync(session);
 
         //Then
         verify(session).execute(statementCaptor.capture());

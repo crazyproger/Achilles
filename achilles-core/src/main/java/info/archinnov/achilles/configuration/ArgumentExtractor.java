@@ -25,6 +25,7 @@ import static info.archinnov.achilles.configuration.ConfigurationParameters.CONS
 import static info.archinnov.achilles.configuration.ConfigurationParameters.ENTITIES_LIST;
 import static info.archinnov.achilles.configuration.ConfigurationParameters.ENTITY_PACKAGES;
 import static info.archinnov.achilles.configuration.ConfigurationParameters.EVENT_INTERCEPTORS;
+import static info.archinnov.achilles.configuration.ConfigurationParameters.EXECUTOR_SERVICE;
 import static info.archinnov.achilles.configuration.ConfigurationParameters.FORCE_BATCH_STATEMENTS_ORDERING;
 import static info.archinnov.achilles.configuration.ConfigurationParameters.FORCE_TABLE_CREATION;
 import static info.archinnov.achilles.configuration.ConfigurationParameters.INSERT_STRATEGY;
@@ -45,6 +46,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
 import java.util.Set;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import javax.validation.ValidationException;
 import org.apache.commons.lang.StringUtils;
 import org.reflections.Reflections;
@@ -80,6 +83,7 @@ public class ArgumentExtractor {
 
     static final InsertStrategy DEFAULT_INSERT_STRATEGY = InsertStrategy.ALL_FIELDS;
 
+    static final ExecutorService DEFAULT_EXECUTOR_SERVICE = Executors.newCachedThreadPool();
 
     public List<Class<?>> initEntities(ConfigMap configurationMap, ClassLoader classLoader) {
         log.trace("Extract entities from configuration map");
@@ -128,6 +132,7 @@ public class ArgumentExtractor {
         configContext.setForceBatchStatementsOrdering(initForceBatchStatementsOrdering(configurationMap));
         configContext.setInsertStrategy(initInsertStrategy(configurationMap));
         configContext.setOsgiClassLoader(initOsgiClassLoader(configurationMap));
+        configContext.setExecutorService(initExecutorService(configurationMap));
         return configContext;
     }
 
@@ -276,5 +281,9 @@ public class ArgumentExtractor {
 
     public ClassLoader initOsgiClassLoader(ConfigMap configMap) {
         return configMap.getTyped(OSGI_CLASS_LOADER);
+    }
+
+    public ExecutorService initExecutorService(ConfigMap configMap) {
+        return configMap.getTypedOr(EXECUTOR_SERVICE, DEFAULT_EXECUTOR_SERVICE);
     }
 }

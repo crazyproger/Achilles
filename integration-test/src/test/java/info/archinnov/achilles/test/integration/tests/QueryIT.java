@@ -18,7 +18,6 @@ package info.archinnov.achilles.test.integration.tests;
 import static info.archinnov.achilles.test.integration.entity.ClusteredEntity.TABLE_NAME;
 import static info.archinnov.achilles.test.integration.entity.CompleteBeanTestBuilder.builder;
 import static org.fest.assertions.api.Assertions.assertThat;
-
 import java.nio.ByteBuffer;
 import java.util.Date;
 import java.util.List;
@@ -592,7 +591,7 @@ public class QueryIT {
     }
 
     @Test
-    public void should_apply_null_heap_byte_buffer(){
+    public void should_apply_null_heap_byte_buffer() {
         // Given
         Tweet entity = TweetTestBuilder.tweet().randomId().content("label").buid();
 
@@ -611,7 +610,7 @@ public class QueryIT {
     }
 
     @Test
-    public void should_apply_null_bounded_values(){
+    public void should_apply_null_bounded_values() {
         // Given
         CompleteBean entity = builder().randomId().name("DuyHai").label("label").buid();
 

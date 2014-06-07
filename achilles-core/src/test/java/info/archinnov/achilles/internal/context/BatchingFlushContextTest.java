@@ -31,7 +31,6 @@ import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
 import org.powermock.reflect.internal.WhiteboxImpl;
-import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.RegularStatement;
 import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
@@ -41,6 +40,7 @@ import info.archinnov.achilles.internal.context.AbstractFlushContext.FlushType;
 import info.archinnov.achilles.internal.interceptor.EventHolder;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
+import info.archinnov.achilles.internal.statement.wrapper.BatchStatementWrapper;
 import info.archinnov.achilles.internal.statement.wrapper.BoundStatementWrapper;
 import info.archinnov.achilles.internal.statement.wrapper.RegularStatementWrapper;
 import info.archinnov.achilles.listener.CASResultListener;
@@ -62,7 +62,7 @@ public class BatchingFlushContextTest {
     private RegularStatement query;
 
     @Captor
-    ArgumentCaptor<BatchStatement> batchCaptor;
+    ArgumentCaptor<BatchStatementWrapper> batchCaptor;
 
     private Optional<CASResultListener> noListener = Optional.absent();
 
@@ -99,22 +99,21 @@ public class BatchingFlushContextTest {
         context.setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM);
 
         //When
-        context.endBatch();
+        context.flushBatch();
 
         //Then
         verify(eventHolder).triggerInterception();
-        verify(daoContext, times(2)).executeBatch(batchCaptor.capture());
+        verify(daoContext, times(2)).execute(batchCaptor.capture());
 
         assertThat(batchCaptor.getAllValues()).hasSize(2);
 
-        final BatchStatement batchStatement1 = batchCaptor.getAllValues().get(0);
-        assertThat(batchStatement1.getConsistencyLevel()).isSameAs(com.datastax.driver.core.ConsistencyLevel.LOCAL_QUORUM);
+        final BatchStatementWrapper batchStatement1 = batchCaptor.getAllValues().get(0);
+        assertThat(batchStatement1.getConsistencyLevel()).isSameAs(ConsistencyLevel.LOCAL_QUORUM);
         final List<Statement> statements1 = WhiteboxImpl.getInternalState(batchStatement1, "statements");
         assertThat(statements1).contains(statement1, statement2);
 
-        final BatchStatement batchStatement2 = batchCaptor.getAllValues().get(1);
-        assertThat(batchStatement1
-                .getConsistencyLevel()).isSameAs(com.datastax.driver.core.ConsistencyLevel.LOCAL_QUORUM);
+        final BatchStatementWrapper batchStatement2 = batchCaptor.getAllValues().get(1);
+        assertThat(batchStatement1.getConsistencyLevel()).isSameAs(ConsistencyLevel.LOCAL_QUORUM);
         final List<Statement> statements2 = WhiteboxImpl.getInternalState(batchStatement2, "statements");
         assertThat(statements2).contains(statement1, statement2);
     }

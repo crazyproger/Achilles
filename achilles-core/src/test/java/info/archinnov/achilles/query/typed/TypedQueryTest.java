@@ -39,6 +39,7 @@ import org.mockito.runners.MockitoJUnitRunner;
 import org.powermock.reflect.Whitebox;
 import com.datastax.driver.core.Row;
 import info.archinnov.achilles.interceptor.Event;
+import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
 import info.archinnov.achilles.internal.context.PersistenceContext;
 import info.archinnov.achilles.internal.context.PersistenceContextFactory;
@@ -72,6 +73,9 @@ public class TypedQueryTest {
     private PersistenceContext context;
 
     @Mock
+    private ConfigurationContext configContext;
+
+    @Mock
     private PersistenceContext.EntityFacade entityFacade;
 
     @Mock
@@ -100,7 +104,7 @@ public class TypedQueryTest {
         String queryString = "select * from test";
         initBuilder(queryString, meta, meta.getPropertyMetas(), true);
 
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).all()).thenReturn(Arrays.asList(row));
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().all()).thenReturn(Arrays.asList(row));
         when(mapper.mapRowToEntityWithPrimaryKey(eq(meta), eq(row), Mockito.<Map<String, PropertyMeta>>any(), eq(true))).thenReturn(entity);
         when(contextFactory.newContext(entity)).thenReturn(context);
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, entityFacade)).thenReturn(entity);
@@ -125,7 +129,7 @@ public class TypedQueryTest {
         String queryString = " select id, name   from  test";
         initBuilder(queryString, meta, meta.getPropertyMetas(), true);
 
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).all()).thenReturn(Arrays.asList(row));
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().all()).thenReturn(Arrays.asList(row));
         when(mapper.mapRowToEntityWithPrimaryKey(eq(meta), eq(row), Mockito.<Map<String, PropertyMeta>>any(), eq(true))).thenReturn(entity);
         when(contextFactory.newContext(entity)).thenReturn(context);
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, entityFacade)).thenReturn(entity);
@@ -142,7 +146,7 @@ public class TypedQueryTest {
         EntityMeta meta = buildEntityMeta();
         initBuilder("select * from test", meta, meta.getPropertyMetas(), true);
 
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).all()).thenReturn(Arrays.asList(row));
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().all()).thenReturn(Arrays.asList(row));
         when(mapper.mapRowToEntityWithPrimaryKey(eq(meta), eq(row), Mockito.<Map<String, PropertyMeta>>any(), eq(true))).thenReturn(null);
 
         List<CompleteBean> actual = builder.get();
@@ -160,7 +164,7 @@ public class TypedQueryTest {
         String queryString = "select * from test";
         initBuilder(queryString, meta, propertyMetas, false);
 
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).all()).thenReturn(Arrays.asList(row));
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().all()).thenReturn(Arrays.asList(row));
         when(mapper.mapRowToEntityWithPrimaryKey(meta, row, propertyMetas, false)).thenReturn(entity);
 
         List<CompleteBean> actual = builder.get();
@@ -183,7 +187,7 @@ public class TypedQueryTest {
         String queryString = "select id from test";
         initBuilder(queryString, meta, meta.getPropertyMetas(), true);
 
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).one()).thenReturn(row);
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().one()).thenReturn(row);
         when(mapper.mapRowToEntityWithPrimaryKey(eq(meta), eq(row), Mockito.<Map<String, PropertyMeta>>any(), eq(true))).thenReturn(entity);
         when(contextFactory.newContext(entity)).thenReturn(context);
         when(proxifier.buildProxyWithAllFieldsLoadedExceptCounters(entity, entityFacade)).thenReturn(entity);
@@ -204,7 +208,7 @@ public class TypedQueryTest {
         String queryString = "select id from test";
         initBuilder(queryString, meta, meta.getPropertyMetas(), false);
 
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).one()).thenReturn(row);
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().one()).thenReturn(row);
         when(mapper.mapRowToEntityWithPrimaryKey(eq(meta), eq(row), Mockito.<Map<String, PropertyMeta>>any(), eq(false))).thenReturn(entity);
 
         CompleteBean actual = builder.getFirst();
@@ -219,7 +223,7 @@ public class TypedQueryTest {
         EntityMeta meta = buildEntityMeta();
         String queryString = "select id from test";
         initBuilder(queryString, meta, meta.getPropertyMetas(), false);
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).one()).thenReturn(null);
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().one()).thenReturn(null);
         CompleteBean actual = builder.getFirst();
 
         assertThat(actual).isNull();
@@ -233,7 +237,7 @@ public class TypedQueryTest {
         EntityMeta meta = buildEntityMeta();
         String queryString = "select id from test";
         initBuilder(queryString, meta, meta.getPropertyMetas(), false);
-        when(daoContext.execute(any(AbstractStatementWrapper.class)).one()).thenReturn(row);
+        when(daoContext.execute(any(AbstractStatementWrapper.class)).getResultSetFutures().get(0).getUninterruptibly().one()).thenReturn(row);
         when(mapper.mapRowToEntityWithPrimaryKey(eq(meta), eq(row), Mockito.<Map<String, PropertyMeta>>any(), eq(true))).thenReturn(null);
 
         CompleteBean actual = builder.getFirst();
@@ -256,7 +260,7 @@ public class TypedQueryTest {
 
     private void initBuilder(String queryString, EntityMeta meta, Map<String, PropertyMeta> propertyMetas,
             boolean managed) {
-        builder = new TypedQuery<>(entityClass, daoContext, queryString, meta, contextFactory, managed, true, new Object[] { "a" });
+        builder = new TypedQuery<>(entityClass, daoContext, configContext, queryString, meta, contextFactory, managed, true, new Object[] { "a" });
 
         Whitebox.setInternalState(builder, String.class, queryString);
         Whitebox.setInternalState(builder, Map.class, propertyMetas);

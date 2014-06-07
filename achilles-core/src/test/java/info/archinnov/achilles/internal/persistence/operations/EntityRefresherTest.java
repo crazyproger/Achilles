@@ -78,7 +78,7 @@ public class EntityRefresherTest {
         when(jpaEntityInterceptor.getDirtyMap()).thenReturn(dirtyMap);
         when(jpaEntityInterceptor.getAlreadyLoaded()).thenReturn(alreadyLoaded);
         when(context.getEntityMeta()).thenReturn(entityMeta);
-        when(loader.load(context, CompleteBean.class)).thenReturn(bean);
+        when(loader.load(context, CompleteBean.class).getImmediately()).thenReturn(bean);
         when(context.getAllGettersExceptCounters()).thenReturn(allGettersExceptCounters);
 
         refresher.refresh(bean, context);

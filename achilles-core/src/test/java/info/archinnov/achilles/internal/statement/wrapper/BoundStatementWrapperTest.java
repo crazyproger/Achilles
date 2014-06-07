@@ -55,7 +55,7 @@ public class BoundStatementWrapperTest {
         when(ps.getQueryString()).thenReturn("SELECT");
 
         //When
-        wrapper.execute(session);
+        wrapper.executeAsync(session);
 
         //Then
         verify(session).execute(bs);
