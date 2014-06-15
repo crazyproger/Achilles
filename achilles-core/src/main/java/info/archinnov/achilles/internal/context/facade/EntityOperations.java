@@ -18,7 +18,7 @@ package info.archinnov.achilles.internal.context.facade;
 
 import java.util.List;
 import com.datastax.driver.core.Row;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
 import info.archinnov.achilles.internal.proxy.dirtycheck.DirtyCheckChangeSet;
 import info.archinnov.achilles.type.ConsistencyLevel;
@@ -26,7 +26,7 @@ import info.archinnov.achilles.type.ConsistencyLevel;
 public interface EntityOperations extends PersistentStateHolder {
 
 
-    public WrapperToFuture<Row> loadEntity();
+    public ListenableFuture<Row> loadEntity();
 
     public Row loadProperty(PropertyMeta pm);
 
@@ -48,7 +48,7 @@ public interface EntityOperations extends PersistentStateHolder {
     // Clustered counter
     public void pushClusteredCounterIncrementStatement(PropertyMeta counterMeta, Long increment);
 
-    public WrapperToFuture<Row> getClusteredCounter();
+    public ListenableFuture<Row> getClusteredCounter();
 
     public Long getClusteredCounterColumn(PropertyMeta counterMeta);
 

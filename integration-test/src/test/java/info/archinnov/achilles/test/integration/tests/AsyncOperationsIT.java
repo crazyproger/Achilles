@@ -36,7 +36,6 @@ import com.datastax.driver.core.querybuilder.QueryBuilder;
 import com.datastax.driver.core.querybuilder.Select;
 import com.google.common.util.concurrent.FutureCallback;
 import info.archinnov.achilles.async.AchillesFuture;
-import info.archinnov.achilles.exception.AchillesCASException;
 import info.archinnov.achilles.exception.AchillesStaleObjectStateException;
 import info.archinnov.achilles.junit.AchillesTestResource.Steps;
 import info.archinnov.achilles.listener.CASResultListener;
@@ -142,7 +141,7 @@ public class AsyncOperationsIT {
 
         manager.persist(paul);
 
-        final CountDownLatch latch = new CountDownLatch(2);
+        final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Object> successSpy = new AtomicReference<>();
         final AtomicReference<Throwable> exceptionSpy = new AtomicReference<>();
 
@@ -177,8 +176,9 @@ public class AsyncOperationsIT {
 
         //Then
         latch.await();
+        Thread.sleep(100);
         assertThat(successSpy.get()).isNotNull().isSameAs(george);
-        assertThat(exceptionSpy.get()).isNotNull().isInstanceOf(AchillesCASException.class);
+        assertThat(exceptionSpy.get()).isNotNull().isInstanceOf(Throwable.class);
     }
 
     @Test
@@ -188,17 +188,20 @@ public class AsyncOperationsIT {
 
         manager.persist(paul);
 
+        final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Throwable> exceptionSpy = new AtomicReference<>();
         final AtomicReference<CASResult> casResultSpy = new AtomicReference<>();
 
         FutureCallback<Object> errorCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
                 exceptionSpy.getAndSet(t);
+                latch.countDown();
             }
         };
         //When
@@ -216,7 +219,8 @@ public class AsyncOperationsIT {
         manager.asyncPersist(paul, withAsyncListeners(errorCallBack).ifNotExists().casResultListener(casListener));
 
         //Then
-        Thread.sleep(1000);
+        latch.await();
+        Thread.sleep(100);
         assertThat(exceptionSpy.get()).isNull();
         assertThat(casResultSpy.get()).isNotNull().isInstanceOf(CASResult.class);
         ;
@@ -232,17 +236,19 @@ public class AsyncOperationsIT {
         manager.persist(entity2);
         manager.persist(entity3);
 
+        final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Object> successSpy = new AtomicReference<>();
 
         FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
                 successSpy.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -262,6 +268,8 @@ public class AsyncOperationsIT {
         assertThat(found2).isNotNull();
         assertThat(found2.getName()).isEqualTo("Paul");
 
+        latch.await();
+        Thread.sleep(100);
         assertThat(successSpy.get()).isNotNull().isInstanceOf(CompleteBean.class)
                 .isNotInstanceOf(Factory.class);
     }
@@ -275,17 +283,19 @@ public class AsyncOperationsIT {
         CompleteBean george = CompleteBeanTestBuilder.builder().randomId().name("George").age(43L)
                 .addFriends("bob", "alice").addPreference(1, "US").addPreference(2, "Seattle").buid();
 
+        final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Object> successSpy = new AtomicReference<>();
 
         FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
                 successSpy.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
         CompleteBean managedJonathan = manager.persist(jonathan);
@@ -331,6 +341,8 @@ public class AsyncOperationsIT {
         assertThat(preferences3.get(1)).isEqualTo("US");
         assertThat(preferences3.get(2)).isEqualTo("Seattle");
 
+        latch.await();
+        Thread.sleep(100);
         assertThat(successSpy.get()).isNotNull().isSameAs(managedJonathan);
     }
 
@@ -345,17 +357,19 @@ public class AsyncOperationsIT {
         jack = manager.persist(jack);
         john = manager.persist(john);
 
+        final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Object> successSpy = new AtomicReference<>();
 
         FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
                 successSpy.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -375,6 +389,8 @@ public class AsyncOperationsIT {
         List<Row> rowsJack = session.execute("select * from completebean where id=" + jack.getId()).all();
         assertThat(rowsJack).isEmpty();
 
+        latch.await();
+        Thread.sleep(100);
         assertThat(successSpy.get()).isNotNull().isInstanceOf(CompleteBean.class)
                 .isNotExactlyInstanceOf(Factory.class);
     }
@@ -399,17 +415,19 @@ public class AsyncOperationsIT {
         session.execute("UPDATE completebean SET name='Jack_modified' WHERE id=" + jack.getId());
         session.execute("UPDATE completebean SET friends=friends + ['mallory'] WHERE id=" + jack.getId());
 
+        final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Object> successSpy = new AtomicReference<>();
 
         FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
                 successSpy.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -432,6 +450,8 @@ public class AsyncOperationsIT {
         assertThat(jack.getFriends()).hasSize(3);
         assertThat(jack.getFriends().get(2)).isEqualTo("mallory");
 
+        latch.await();
+        Thread.sleep(100);
         assertThat(successSpy.get()).isNotNull().isInstanceOf(CompleteBean.class)
                 .isNotExactlyInstanceOf(Factory.class);
     }
@@ -439,17 +459,19 @@ public class AsyncOperationsIT {
     @Test
     public void should_notified_async_listener_for_staled_object_on_refresh() throws Exception {
         //Given
-
+        final CountDownLatch latch = new CountDownLatch(1);
         final AtomicReference<Object> exceptionSpy = new AtomicReference<>();
 
         FutureCallback<Object> exceptionCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
                 exceptionSpy.getAndSet(t);
+                latch.countDown();
             }
         };
         final CompleteBean proxy = manager.getProxy(CompleteBean.class, 10L);
@@ -457,7 +479,8 @@ public class AsyncOperationsIT {
         //When
         manager.asyncRefresh(proxy, withAsyncListeners(exceptionCallBack));
 
-        Thread.sleep(1000);
+        latch.await();
+        Thread.sleep(100);
 
         //Then
         assertThat(exceptionSpy.get()).isNotNull().isInstanceOf(AchillesStaleObjectStateException.class);

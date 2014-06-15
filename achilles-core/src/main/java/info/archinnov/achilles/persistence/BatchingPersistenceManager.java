@@ -15,18 +15,20 @@
  */
 package info.archinnov.achilles.persistence;
 
-import static info.archinnov.achilles.internal.async.AsyncUtils.maybeAddAsyncListeners;
 import static info.archinnov.achilles.type.OptionsBuilder.noOptions;
 import static info.archinnov.achilles.type.OptionsBuilder.withConsistency;
+import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.datastax.driver.core.ResultSet;
 import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.async.AchillesFuture;
 import info.archinnov.achilles.exception.AchillesException;
-import info.archinnov.achilles.exception.AchillesStaleObjectStateException;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.async.Empty;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
 import info.archinnov.achilles.internal.context.BatchingFlushContext;
 import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
@@ -44,6 +46,7 @@ public class BatchingPersistenceManager extends PersistenceManager {
     protected BatchingFlushContext flushContext;
     private final ConsistencyLevel defaultConsistencyLevel;
     private final boolean forceStatementsOrdering;
+    private AsyncUtils asyncUtils = new AsyncUtils();
 
     BatchingPersistenceManager(Map<Class<?>, EntityMeta> entityMetaMap, PersistenceContextFactory contextFactory,
             DaoContext daoContext, ConfigurationContext configContext) {
@@ -78,7 +81,7 @@ public class BatchingPersistenceManager extends PersistenceManager {
     public void flushBatch() {
         log.debug("Flushing batch");
         try {
-            new AchillesFuture<>(flushContext.flushBatch()).getImmediately();
+            asyncUtils.buildInterruptible(flushContext.flushBatch()).getImmediately();
         } finally {
             flushContext = flushContext.duplicateWithNoData(defaultConsistencyLevel);
         }
@@ -93,9 +96,12 @@ public class BatchingPersistenceManager extends PersistenceManager {
     public AchillesFuture<Empty> asyncFlushBatch(FutureCallback<Object>... asyncListeners) {
         log.debug("Flushing batch asynchronously");
         try {
-            final WrapperToFuture<Empty> wrapperToFuture = flushContext.flushBatch();
-            maybeAddAsyncListeners(wrapperToFuture, asyncListeners, configContext.getExecutorService());
-            return new AchillesFuture<>(wrapperToFuture);
+            final ExecutorService executorService = configContext.getExecutorService();
+            final ListenableFuture<List<ResultSet>> futureResultSets = flushContext.flushBatch();
+            final ListenableFuture<Empty> futureEmpty = asyncUtils.transformFutureToEmpty(futureResultSets);
+            asyncUtils.maybeAddAsyncListeners(futureEmpty, asyncListeners, executorService);
+
+            return asyncUtils.buildInterruptible(futureEmpty);
         } finally {
             flushContext = flushContext.duplicateWithNoData(defaultConsistencyLevel);
         }

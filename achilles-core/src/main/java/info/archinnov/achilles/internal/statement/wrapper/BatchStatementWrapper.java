@@ -17,12 +17,15 @@
 package info.archinnov.achilles.internal.statement.wrapper;
 
 import static info.archinnov.achilles.internal.consistency.ConsistencyConverter.getCQLLevel;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
 import com.datastax.driver.core.BatchStatement;
-import com.datastax.driver.core.ResultSetFuture;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
+import com.google.common.base.Joiner;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.type.ConsistencyLevel;
 
 public class BatchStatementWrapper extends AbstractStatementWrapper {
@@ -55,17 +58,16 @@ public class BatchStatementWrapper extends AbstractStatementWrapper {
 
     @Override
     public String getQueryString() {
-        StringBuilder queryString = new StringBuilder();
+        List<String> queries = new ArrayList<>();
         for (AbstractStatementWrapper statementWrapper : statementWrappers) {
-            queryString.append(statementWrapper.getQueryString()).append("\n");
+            queries.add(statementWrapper.getQueryString());
         }
-        return queryString.toString();
+        return Joiner.on("\n").join(queries);
     }
 
     @Override
-    public ResultSetFutureWrapper executeAsync(Session session) {
-        ResultSetFuture resultSet = session.executeAsync(batchStatement);
-        return new ResultSetFutureWrapper(resultSet, this);
+    public ListenableFuture<ResultSet> executeAsync(Session session, ExecutorService executorService) {
+        return super.executeAsyncInternal(session, this, executorService);
     }
 
     @Override
@@ -80,7 +82,7 @@ public class BatchStatementWrapper extends AbstractStatementWrapper {
         }
 
         for (AbstractStatementWrapper statementWrapper : statementWrappers) {
-            statementWrapper.logDMLStatement("\t");
+            statementWrapper.logDMLStatement(indentation);
         }
         if (dmlLogger.isDebugEnabled() || batchStatement.isTracing()) {
             AbstractStatementWrapper.writeDMLEndBatch(batchType, consistencyLevel);

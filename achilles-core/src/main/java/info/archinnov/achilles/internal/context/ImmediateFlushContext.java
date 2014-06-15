@@ -19,10 +19,10 @@ import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.ResultSet;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.interceptor.Event;
-import info.archinnov.achilles.internal.async.Empty;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.async.EmptyFutureResultSets;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
 import info.archinnov.achilles.type.ConsistencyLevel;
@@ -45,17 +45,29 @@ public class ImmediateFlushContext extends AbstractFlushContext {
     }
 
     @Override
-    public WrapperToFuture<Empty> flushBatch() {
+    public ListenableFuture<List<ResultSet>> flushBatch() {
         throw new UnsupportedOperationException("Cannot end a batch with a normal PersistenceManager. Please create a Batch instead");
     }
 
     @Override
-    public ResultSetFutureWrapper flush() {
+    public ListenableFuture<List<ResultSet>> flush() {
         log.debug("Flush immediately all pending statements");
 
-        return ResultSetFutureWrapper.merge(
-                executeBatch(BatchStatement.Type.UNLOGGED, statementWrappers),
-                executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers));
+        ListenableFuture<List<ResultSet>> aggregated;
+        if (!statementWrappers.isEmpty() && !counterStatementWrappers.isEmpty()) {
+            final ListenableFuture<ResultSet> resultSetFutureFields = executeBatch(BatchStatement.Type.UNLOGGED, statementWrappers);
+            final ListenableFuture<ResultSet> resultSetFutureCounters = executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers);
+            aggregated = asyncUtils.mergeResultSetFutures(resultSetFutureFields, resultSetFutureCounters);
+        } else if (!statementWrappers.isEmpty()) {
+            final ListenableFuture<ResultSet> resultSetFutureFields = executeBatch(BatchStatement.Type.UNLOGGED, statementWrappers);
+            aggregated = asyncUtils.mergeResultSetFutures(resultSetFutureFields);
+        } else if (!counterStatementWrappers.isEmpty()) {
+            final ListenableFuture<ResultSet> resultSetFutureCounters = executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers);
+            aggregated = asyncUtils.mergeResultSetFutures(resultSetFutureCounters);
+        } else {
+            aggregated = new EmptyFutureResultSets();
+        }
+        return aggregated;
     }
 
     @Override

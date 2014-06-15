@@ -19,6 +19,7 @@ package info.archinnov.achilles.internal.statement.wrapper;
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+import java.util.concurrent.ExecutorService;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.Mock;
@@ -45,6 +46,10 @@ public class BoundStatementWrapperTest {
     @Mock
     private Session session;
 
+    @Mock
+    private ExecutorService executorService;
+
+
     private static final Optional<CASResultListener> NO_LISTENER = Optional.absent();
 
     @Test
@@ -55,7 +60,7 @@ public class BoundStatementWrapperTest {
         when(ps.getQueryString()).thenReturn("SELECT");
 
         //When
-        wrapper.executeAsync(session);
+        wrapper.executeAsync(session, executorService);
 
         //Then
         verify(session).execute(bs);

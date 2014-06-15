@@ -27,6 +27,7 @@ import java.util.Collections;
 import java.util.Comparator;
 import java.util.List;
 import java.util.TreeMap;
+import java.util.concurrent.ExecutorService;
 import org.apache.commons.lang.ArrayUtils;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -35,12 +36,14 @@ import com.datastax.driver.core.DataType;
 import com.datastax.driver.core.ExecutionInfo;
 import com.datastax.driver.core.QueryTrace;
 import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.exception.AchillesCASException;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.reflection.RowMethodInvoker;
 import info.archinnov.achilles.listener.CASResultListener;
 import info.archinnov.achilles.type.ConsistencyLevel;
@@ -55,6 +58,7 @@ public abstract class AbstractStatementWrapper {
 
     protected static final Logger dmlLogger = LoggerFactory.getLogger(ACHILLES_DML_STATEMENT);
     protected RowMethodInvoker invoker = new RowMethodInvoker();
+    protected AsyncUtils asyncUtils = new AsyncUtils();
 
     protected Optional<CASResultListener> casResultListener = Optional.absent();
 
@@ -81,11 +85,18 @@ public abstract class AbstractStatementWrapper {
 
     public abstract String getQueryString();
 
-    public abstract ResultSetFutureWrapper executeAsync(Session session);
+    public abstract ListenableFuture<ResultSet> executeAsync(Session session, ExecutorService executorService);
 
     public abstract Statement getStatement();
 
     public abstract void logDMLStatement(String indentation);
+
+    protected ListenableFuture<ResultSet> executeAsyncInternal(Session session, AbstractStatementWrapper statementWrapper, ExecutorService executorService) {
+        ResultSetFuture resultSetFuture = session.executeAsync(statementWrapper.getStatement());
+        // asyncUtils.addListenerToResultSet(resultSetFuture, statementWrapper);
+
+        return asyncUtils.applyLoggingTracingAndCASCheck(resultSetFuture, statementWrapper, executorService);
+    }
 
     public static void writeDMLStartBatch(BatchStatement.Type batchType) {
         switch (batchType) {
@@ -134,7 +145,6 @@ public abstract class AbstractStatementWrapper {
     }
 
     protected void writeDMLStatementLog(String queryType, String queryString, String consistencyLevel, Object... values) {
-
         Logger actualLogger = displayDMLForEntity ? entityLogger : dmlLogger;
 
         actualLogger.debug("{} : [{}] with CONSISTENCY LEVEL [{}]", queryType, queryString, consistencyLevel);
@@ -152,8 +162,8 @@ public abstract class AbstractStatementWrapper {
         return queryString.contains(IF_CLAUSE);
     }
 
-    public void checkForCASSuccess(String queryString, ResultSet resultSet) {
-
+    public void checkForCASSuccess(ResultSet resultSet) {
+        String queryString = this.getQueryString();
         if (isCASOperation(queryString)) {
             final Row casResult = resultSet.one();
             if (casResult != null && !casResult.getBool(CAS_RESULT_COLUMN)) {

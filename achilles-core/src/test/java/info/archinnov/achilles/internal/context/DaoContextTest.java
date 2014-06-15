@@ -69,7 +69,6 @@ import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import info.archinnov.achilles.counter.AchillesCounter.CQLQueryType;
 import info.archinnov.achilles.exception.AchillesException;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
 import info.archinnov.achilles.internal.consistency.ConsistencyOverrider;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
@@ -89,7 +88,7 @@ import info.archinnov.achilles.type.Pair;
 
 @RunWith(MockitoJUnitRunner.class)
 public class DaoContextTest {
-
+/*
     @Rule
     public ExpectedException exception = ExpectedException.none();
 
@@ -624,4 +623,6 @@ public class DaoContextTest {
 
         assertThat(daoContext.prepare(statement)).isSameAs(ps);
     }
+*/
 }
+

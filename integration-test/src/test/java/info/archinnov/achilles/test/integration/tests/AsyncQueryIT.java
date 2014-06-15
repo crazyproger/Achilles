@@ -26,6 +26,7 @@ import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.atomic.AtomicReference;
 import org.apache.commons.lang.math.RandomUtils;
@@ -75,17 +76,19 @@ public class AsyncQueryIT {
         manager.persist(entity2);
 
         String nativeQuery = "SELECT name,age_in_years,friends,followers,preferences FROM CompleteBean WHERE id = :id";
-        final AtomicReference<Object> successSpy = new AtomicReference<>();
 
+        final CountDownLatch latch = new CountDownLatch(1);
+        final AtomicReference<Object> successSpy = new AtomicReference<>();
         FutureCallback<Object> successCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
                 successSpy.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -117,6 +120,7 @@ public class AsyncQueryIT {
         assertThat(preferences2.get(1)).isEqualTo("US");
         assertThat(preferences2.get(2)).isEqualTo("NewYork");
 
+        latch.await();
         assertThat(successSpy.get()).isNotNull().isInstanceOf(List.class);
     }
 
@@ -124,6 +128,8 @@ public class AsyncQueryIT {
     public void should_excecute_DML_native_query_with_async_listeners() throws Exception {
         //Given
         Long id = RandomUtils.nextLong();
+
+        final CountDownLatch latch = new CountDownLatch(2);
         final AtomicReference<Object> successSpy = new AtomicReference<>();
         final AtomicReference<Throwable> exceptionSpy = new AtomicReference<>();
 
@@ -131,22 +137,25 @@ public class AsyncQueryIT {
             @Override
             public void onSuccess(Object result) {
                 successSpy.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
         FutureCallback<Object> exceptionCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
                 exceptionSpy.getAndSet(t);
+                latch.countDown();
             }
         };
 
@@ -154,6 +163,7 @@ public class AsyncQueryIT {
         manager.nativeQuery("INSERT INTO completebean(id) VALUES (:id)", id).asyncExecute(successCallBack);
         manager.nativeQuery("DELETE FROM completebean WHERE name='test'").asyncExecute(exceptionCallBack);
 
+        latch.await();
         Thread.sleep(100);
 
         //Then
@@ -174,6 +184,7 @@ public class AsyncQueryIT {
         manager.persist(paul);
         manager.persist(john);
 
+        final CountDownLatch latch = new CountDownLatch(2);
         final AtomicReference<Object> successSpy1 = new AtomicReference<>();
         final AtomicReference<Object> successSpy2 = new AtomicReference<>();
 
@@ -181,11 +192,12 @@ public class AsyncQueryIT {
             @Override
             public void onSuccess(Object result) {
                 successSpy1.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -193,11 +205,12 @@ public class AsyncQueryIT {
             @Override
             public void onSuccess(Object result) {
                 successSpy2.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -242,6 +255,8 @@ public class AsyncQueryIT {
         assertThat(realJohn.getPreferences().get(1)).isEqualTo("US");
         assertThat(realJohn.getPreferences().get(2)).isEqualTo("NewYork");
 
+        latch.await();
+        Thread.sleep(100);
         assertThat(successSpy1.get()).isNotNull().isInstanceOf(List.class);
         assertThat(successSpy2.get()).isNotNull().isInstanceOf(CompleteBean.class).isNotInstanceOf(Factory.class);
     }
@@ -261,6 +276,7 @@ public class AsyncQueryIT {
         manager.persist(paul);
         manager.persist(john);
 
+        final CountDownLatch latch = new CountDownLatch(2);
         final AtomicReference<Object> successSpy1 = new AtomicReference<>();
         final AtomicReference<Object> successSpy2 = new AtomicReference<>();
 
@@ -268,11 +284,12 @@ public class AsyncQueryIT {
             @Override
             public void onSuccess(Object result) {
                 successSpy1.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -280,11 +297,12 @@ public class AsyncQueryIT {
             @Override
             public void onSuccess(Object result) {
                 successSpy2.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
-
+                latch.countDown();
             }
         };
 
@@ -313,6 +331,8 @@ public class AsyncQueryIT {
         assertThat(foundJohn.getPreferences().get(2)).isEqualTo("NewYork");
         assertThat(foundJohn.getVersion()).isNull();
 
+        latch.await();
+        Thread.sleep(100);
         assertThat(successSpy1.get()).isNotNull().isInstanceOf(CompleteBean.class).isNotInstanceOf(Factory.class);
         assertThat(successSpy2.get()).isNotNull().isInstanceOf(CompleteBean.class).isNotInstanceOf(Factory.class);
     }
@@ -325,6 +345,7 @@ public class AsyncQueryIT {
 
         assertThat(entities).isEmpty();
 
+        final CountDownLatch latch = new CountDownLatch(2);
         final AtomicReference<Object> successSpy = new AtomicReference<>();
         final AtomicReference<Throwable> exceptionSpy = new AtomicReference<>();
 
@@ -332,21 +353,25 @@ public class AsyncQueryIT {
             @Override
             public void onSuccess(Object result) {
                 successSpy.getAndSet(result);
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
+                latch.countDown();
             }
         };
 
         FutureCallback<Object> exceptionCallBack = new FutureCallback<Object>() {
             @Override
             public void onSuccess(Object result) {
+                latch.countDown();
             }
 
             @Override
             public void onFailure(Throwable t) {
                 exceptionSpy.getAndSet(t);
+                latch.countDown();
             }
         };
 
@@ -383,6 +408,7 @@ public class AsyncQueryIT {
                 .consistencyLevel(EACH_QUORUM).asyncListeners(exceptionCallBack)
                 .asyncGet();
 
+        latch.await();
         Thread.sleep(100);
         assertThat(exceptionSpy.get()).isNotNull().isInstanceOf(InvalidQueryException.class);
     }

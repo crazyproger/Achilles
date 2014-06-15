@@ -23,11 +23,14 @@ import java.util.List;
 import java.util.concurrent.ExecutorService;
 import org.apache.commons.lang.ArrayUtils;
 import com.datastax.driver.core.ResultSet;
+import com.datastax.driver.core.ResultSetFuture;
 import com.datastax.driver.core.Row;
 import com.google.common.base.Function;
 import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.Futures;
 import com.google.common.util.concurrent.ListenableFuture;
+import info.archinnov.achilles.async.AchillesFuture;
+import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
 import info.archinnov.achilles.type.Options;
 
 public class AsyncUtils {
@@ -72,7 +75,7 @@ public class AsyncUtils {
         }
     };
 
-    public static void maybeAddAsyncListeners(ListenableFuture<?> listenableFuture, Options options, ExecutorService executorService) {
+    public void maybeAddAsyncListeners(ListenableFuture<?> listenableFuture, Options options, ExecutorService executorService) {
         if (options.hasAsyncListeners()) {
             for (FutureCallback<Object> callback : options.getAsyncListeners()) {
                 Futures.addCallback(listenableFuture, callback, executorService);
@@ -81,11 +84,73 @@ public class AsyncUtils {
     }
 
 
-    public static void maybeAddAsyncListeners(ListenableFuture<?> listenableFuture, FutureCallback<Object>[] asyncListeners, ExecutorService executorService) {
+    public void maybeAddAsyncListeners(ListenableFuture<?> listenableFuture, FutureCallback<Object>[] asyncListeners, ExecutorService executorService) {
         if (ArrayUtils.isNotEmpty(asyncListeners)) {
             for (FutureCallback<Object> callback : asyncListeners) {
                 Futures.addCallback(listenableFuture, callback, executorService);
             }
         }
     }
+
+    public <V, T> ListenableFuture<T> transformFuture(ListenableFuture<V> listenableFuture, Function<V, T> function) {
+        return Futures.transform(listenableFuture, function);
+    }
+
+    public <T, V> ListenableFuture<T> transformFuture(ListenableFuture<V> from, Function<V, T> function, ExecutorService executorService) {
+        return Futures.transform(from, function, executorService);
+    }
+
+    public <V> ListenableFuture<Empty> transformFutureToEmpty(ListenableFuture<V> from) {
+        Function<V, Empty> function = new Function<V, Empty>() {
+            @Override
+            public Empty apply(V input) {
+                return Empty.INSTANCE;
+            }
+        };
+        return Futures.transform(from, function);
+    }
+
+    public <T> AchillesFuture<T> buildInterruptible(ListenableFuture<T> listenableFuture) {
+        return new AchillesFuture<>(listenableFuture);
+    }
+
+    public ListenableFuture<List<ResultSet>> mergeResultSetFutures(ListenableFuture<ResultSet>... resultSetFutures) {
+        return Futures.allAsList(resultSetFutures);
+    }
+
+    public ListenableFuture<ResultSet> applyLoggingTracingAndCASCheck(ResultSetFuture resultSetFuture, final AbstractStatementWrapper statementWrapper, ExecutorService executorService) {
+        Function<ResultSet, ResultSet> logStatements = new Function<ResultSet, ResultSet>() {
+            @Override
+            public ResultSet apply(ResultSet resultSet) {
+                statementWrapper.logDMLStatement("");
+                return resultSet;
+            }
+        };
+
+        Function<ResultSet, ResultSet> tracing = new Function<ResultSet, ResultSet>() {
+            @Override
+            public ResultSet apply(ResultSet resultSet) {
+                statementWrapper.tracing(resultSet);
+                return resultSet;
+            }
+        };
+
+        Function<ResultSet, ResultSet> CASCheck = new Function<ResultSet, ResultSet>() {
+            @Override
+            public ResultSet apply(ResultSet resultSet) {
+                statementWrapper.checkForCASSuccess(resultSet);
+                return resultSet;
+            }
+        };
+
+        final ListenableFuture<ResultSet> logApplied = Futures.transform(resultSetFuture, logStatements);
+        final ListenableFuture<ResultSet> tracingApplied = Futures.transform(logApplied, tracing, executorService);
+        return Futures.transform(tracingApplied, CASCheck);
+    }
+
+    public void addTriggersListenerToResultSet(ListenableFuture<ResultSet> resultSetFuture, FutureCallback<ResultSet> applyTriggers) {
+        Futures.addCallback(resultSetFuture, applyTriggers);
+    }
+
+
 }

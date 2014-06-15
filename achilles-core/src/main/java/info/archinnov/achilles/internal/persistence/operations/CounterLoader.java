@@ -18,9 +18,9 @@ package info.archinnov.achilles.internal.persistence.operations;
 
 import com.datastax.driver.core.Row;
 import com.google.common.base.Function;
-import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.async.AchillesFuture;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.consistency.ConsistencyOverrider;
 import info.archinnov.achilles.internal.context.facade.EntityOperations;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
@@ -31,12 +31,13 @@ public class CounterLoader {
 
     private EntityMapper mapper = new EntityMapper();
     private ConsistencyOverrider overrider = new ConsistencyOverrider();
+    private AsyncUtils asyncUtils = new AsyncUtils();
 
     public <T> AchillesFuture<T> loadClusteredCounters(final EntityOperations context) {
         final EntityMeta entityMeta = context.getEntityMeta();
         final Object primaryKey = context.getPrimaryKey();
 
-        final WrapperToFuture<Row> wrapperToFuture = context.getClusteredCounter();
+        final ListenableFuture<Row> futureRow = context.getClusteredCounter();
         Function<Row, T> rowToEntity = new Function<Row, T>() {
             @Override
             public T apply(Row row) {
@@ -52,7 +53,8 @@ public class CounterLoader {
                 return entity;
             }
         };
-        return new AchillesFuture<>(Futures.transform(wrapperToFuture, rowToEntity, context.getExecutorService()));
+        final ListenableFuture<T> futureEntity = asyncUtils.transformFuture(futureRow, rowToEntity, context.getExecutorService());
+        return asyncUtils.buildInterruptible(futureEntity);
     }
 
 

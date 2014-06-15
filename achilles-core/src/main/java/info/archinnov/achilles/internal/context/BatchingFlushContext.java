@@ -15,18 +15,17 @@
  */
 package info.archinnov.achilles.internal.context;
 
+import static com.google.common.util.concurrent.Futures.allAsList;
 import java.util.ArrayList;
 import java.util.List;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.BatchStatement;
 import com.datastax.driver.core.ResultSet;
-import com.google.common.base.Function;
+import com.google.common.util.concurrent.FutureCallback;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.interceptor.Event;
-import info.archinnov.achilles.internal.async.Empty;
-import info.archinnov.achilles.internal.async.MultiWrapperToFuture;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.async.EmptyFutureResultSets;
 import info.archinnov.achilles.internal.interceptor.EventHolder;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
@@ -36,6 +35,7 @@ public class BatchingFlushContext extends AbstractFlushContext {
 
     private static final Logger log = LoggerFactory.getLogger(BatchingFlushContext.class);
     protected List<EventHolder> eventHolders = new ArrayList<>();
+
 
     public BatchingFlushContext(DaoContext daoContext, ConsistencyLevel consistencyLevel) {
         super(daoContext, consistencyLevel);
@@ -52,30 +52,48 @@ public class BatchingFlushContext extends AbstractFlushContext {
     }
 
     @Override
-    public ResultSetFutureWrapper flush() {
+    public ListenableFuture<List<ResultSet>> flush() {
         log.debug("Flush called but do nothing. Flushing is done only at the end of the batch");
-        return ResultSetFutureWrapper.emptyWrapper();
+        return new EmptyFutureResultSets();
     }
 
     @Override
-    public WrapperToFuture<Empty> flushBatch() {
+    public ListenableFuture<List<ResultSet>> flushBatch() {
         log.debug("Ending current batch");
 
-        Function<ResultSet, Empty> applyTriggers = new Function<ResultSet, Empty>() {
+        FutureCallback<ResultSet> applyTriggers = new FutureCallback<ResultSet>() {
             @Override
-            public Empty apply(ResultSet input) {
+            public void onSuccess(ResultSet result) {
                 for (EventHolder eventHolder : eventHolders) {
                     eventHolder.triggerInterception();
                 }
-                return Empty.INSTANCE;
+            }
+
+            @Override
+            public void onFailure(Throwable t) {
             }
         };
 
-        final ResultSetFutureWrapper wrapper = ResultSetFutureWrapper.merge(
-                executeBatch(BatchStatement.Type.LOGGED, statementWrappers),
-                executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers));
+        ListenableFuture<List<ResultSet>> aggregated;
 
-        return new MultiWrapperToFuture<>(wrapper, applyTriggers);
+        if (!statementWrappers.isEmpty() && !counterStatementWrappers.isEmpty()) {
+            final ListenableFuture<ResultSet> resultSetFutureFields = executeBatch(BatchStatement.Type.UNLOGGED, statementWrappers);
+            final ListenableFuture<ResultSet> resultSetFutureCounters = executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers);
+            asyncUtils.addTriggersListenerToResultSet(resultSetFutureFields, applyTriggers);
+            asyncUtils.addTriggersListenerToResultSet(resultSetFutureCounters, applyTriggers);
+            aggregated = allAsList(resultSetFutureFields, resultSetFutureCounters);
+        } else if (!statementWrappers.isEmpty()) {
+            final ListenableFuture<ResultSet> resultSetFutureFields = executeBatch(BatchStatement.Type.UNLOGGED, statementWrappers);
+            asyncUtils.addTriggersListenerToResultSet(resultSetFutureFields, applyTriggers);
+            aggregated = allAsList(resultSetFutureFields);
+        } else if (!counterStatementWrappers.isEmpty()) {
+            final ListenableFuture<ResultSet> resultSetFutureCounters = executeBatch(BatchStatement.Type.COUNTER, counterStatementWrappers);
+            asyncUtils.addTriggersListenerToResultSet(resultSetFutureCounters, applyTriggers);
+            aggregated = allAsList(resultSetFutureCounters);
+        } else {
+            aggregated = new EmptyFutureResultSets();
+        }
+        return aggregated;
     }
 
 

@@ -18,6 +18,7 @@ package info.archinnov.achilles.internal.statement.wrapper;
 
 import static org.fest.assertions.api.Assertions.assertThat;
 import static org.mockito.Mockito.verify;
+import java.util.concurrent.ExecutorService;
 import org.junit.Test;
 import org.junit.runner.RunWith;
 import org.mockito.ArgumentCaptor;
@@ -40,6 +41,9 @@ public class SimpleStatementWrapperTest {
     @Mock
     private Session session;
 
+    @Mock
+    private ExecutorService executorService;
+
     @Captor
     private ArgumentCaptor<RegularStatement> statementCaptor;
 
@@ -51,7 +55,7 @@ public class SimpleStatementWrapperTest {
         wrapper = new SimpleStatementWrapper("SELECT", values, noListener);
 
         //When
-        wrapper.executeAsync(session);
+        wrapper.executeAsync(session, executorService);
 
         //Then
         verify(session).execute(statementCaptor.capture());

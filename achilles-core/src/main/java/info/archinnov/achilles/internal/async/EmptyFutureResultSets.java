@@ -16,19 +16,16 @@
 
 package info.archinnov.achilles.internal.async;
 
+import java.util.Arrays;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executor;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
+import com.datastax.driver.core.ResultSet;
 import com.google.common.util.concurrent.ListenableFuture;
 
-public class ImmediateValue<V> implements ListenableFuture<V> {
-
-    private final V value;
-
-    public ImmediateValue(V value) {
-        this.value = value;
-    }
+public class EmptyFutureResultSets implements ListenableFuture<List<ResultSet>> {
 
     @Override
     public void addListener(Runnable listener, Executor executor) {
@@ -51,12 +48,12 @@ public class ImmediateValue<V> implements ListenableFuture<V> {
     }
 
     @Override
-    public V get() throws InterruptedException, ExecutionException {
-        return value;
+    public List<ResultSet> get() throws InterruptedException, ExecutionException {
+        return Arrays.asList();
     }
 
     @Override
-    public V get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
-        return value;
+    public List<ResultSet> get(long timeout, TimeUnit unit) throws InterruptedException, ExecutionException, TimeoutException {
+        return Arrays.asList();
     }
 }

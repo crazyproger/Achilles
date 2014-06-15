@@ -19,9 +19,9 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.Row;
 import com.google.common.base.Function;
-import com.google.common.util.concurrent.Futures;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.async.AchillesFuture;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.context.facade.EntityOperations;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
@@ -34,6 +34,7 @@ public class EntityLoader {
 
     private EntityMapper mapper = new EntityMapper();
     private CounterLoader counterLoader = new CounterLoader();
+    private AsyncUtils asyncUtils = new AsyncUtils();
 
     public <T> AchillesFuture<T> load(EntityOperations context, Class<T> entityClass) {
         log.debug("Loading entity of class {} using PersistenceContext {}", entityClass, context);
@@ -44,12 +45,12 @@ public class EntityLoader {
         Validator.validateNotNull(primaryKey, "Entity '%s' key should not be null", entityClass.getCanonicalName());
         Validator.validateNotNull(entityMeta, "Entity meta for '%s' should not be null", entityClass.getCanonicalName());
 
-        AchillesFuture<T> futureEntity;
+        AchillesFuture<T> achillesFuture;
 
         if (entityMeta.isClusteredCounter()) {
-            futureEntity = new AchillesFuture(counterLoader.loadClusteredCounters(context));
+            achillesFuture = counterLoader.loadClusteredCounters(context);
         } else {
-            final WrapperToFuture<Row> wrapperToFuture = context.loadEntity();
+            final ListenableFuture<Row> futureRow = context.loadEntity();
             Function<Row, T> rowToEntity = new Function<Row, T>() {
                 @Override
                 public T apply(Row row) {
@@ -61,9 +62,10 @@ public class EntityLoader {
                     return entity;
                 }
             };
-            futureEntity = new AchillesFuture(Futures.transform(wrapperToFuture, rowToEntity, context.getExecutorService()));
+            final ListenableFuture<T> futureEntity = asyncUtils.transformFuture(futureRow, rowToEntity, context.getExecutorService());
+            achillesFuture = asyncUtils.buildInterruptible(futureEntity);
         }
-        return futureEntity;
+        return achillesFuture;
     }
 
     public <T> T createEmptyEntity(EntityOperations context, Class<T> entityClass) {

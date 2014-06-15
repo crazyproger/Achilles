@@ -27,6 +27,7 @@ import static info.archinnov.achilles.internal.persistence.operations.Collection
 import static info.archinnov.achilles.internal.persistence.operations.CollectionAndMapChangeType.SET_TO_LIST_AT_INDEX;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import com.datastax.driver.core.PreparedStatement;
@@ -37,11 +38,10 @@ import com.datastax.driver.core.Session;
 import com.datastax.driver.core.querybuilder.Update;
 import com.google.common.base.Function;
 import com.google.common.cache.Cache;
-import info.archinnov.achilles.async.AchillesFuture;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.counter.AchillesCounter.CQLQueryType;
 import info.archinnov.achilles.exception.AchillesException;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.consistency.ConsistencyOverrider;
 import info.archinnov.achilles.internal.context.facade.DaoOperations;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
@@ -80,6 +80,11 @@ public class DaoContext {
     private StatementGenerator statementGenerator = new StatementGenerator();
 
     private ConsistencyOverrider overrider = new ConsistencyOverrider();
+
+    private AsyncUtils asyncUtils = new AsyncUtils();
+
+    private ExecutorService executorService;
+
 
     private static final Function<ResultSet, Row> RESULTSET_TO_ROW = new Function<ResultSet, Row>() {
         @Override
@@ -131,8 +136,9 @@ public class DaoContext {
     public Row loadProperty(DaoOperations context, PropertyMeta pm) {
         log.debug("Load property '{}' for PersistenceContext '{}'", pm, context);
         PreparedStatement ps = cacheManager.getCacheForFieldSelect(session, dynamicPSCache, context, pm);
-        final ResultSetFutureWrapper wrapper = executeReadWithConsistency(context, ps);
-        return new AchillesFuture<>(new WrapperToFuture<>(wrapper, RESULTSET_TO_ROW)).getImmediately();
+        final ListenableFuture<ResultSet> resultSetFuture = executeReadWithConsistency(context, ps);
+        final ListenableFuture<Row> futureRows = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+        return asyncUtils.buildInterruptible(futureRows).getImmediately();
     }
 
     public void bindForRemoval(DaoOperations context, String tableName) {
@@ -158,14 +164,14 @@ public class DaoContext {
         context.pushCounterStatement(bsWrapper);
     }
 
-    public ResultSetFutureWrapper incrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long increment, ConsistencyLevel consistencyLevel) {
+    public ListenableFuture<ResultSet> incrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long increment, ConsistencyLevel consistencyLevel) {
         log.debug("Increment immediately simple counter for PersistenceContext '{}' and value '{}'", context, increment);
         PreparedStatement ps = counterQueryMap.get(INCR);
         BoundStatementWrapper bsWrapper = binder.bindForSimpleCounterIncrementDecrement(context, ps, counterMeta, increment, consistencyLevel);
         return context.executeImmediate(bsWrapper);
     }
 
-    public ResultSetFutureWrapper decrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long decrement, ConsistencyLevel consistencyLevel) {
+    public ListenableFuture<ResultSet> decrementSimpleCounter(DaoOperations context, PropertyMeta counterMeta, Long decrement, ConsistencyLevel consistencyLevel) {
         log.debug("Decrement immediately simple counter for PersistenceContext '{}' and value '{}'", context, decrement);
         PreparedStatement ps = counterQueryMap.get(DECR);
         BoundStatementWrapper bsWrapper = binder.bindForSimpleCounterIncrementDecrement(context, ps, counterMeta, decrement, consistencyLevel);
@@ -176,8 +182,9 @@ public class DaoContext {
         log.debug("Get simple counter value for counterMeta '{}' PersistenceContext '{}' using Consistency level '{}'", counterMeta, context, consistencyLevel);
         PreparedStatement ps = counterQueryMap.get(SELECT);
         BoundStatementWrapper bsWrapper = binder.bindForSimpleCounterSelect(context, ps, counterMeta, consistencyLevel);
-        final ResultSetFutureWrapper wrapper = context.executeImmediate(bsWrapper);
-        final Row row = new AchillesFuture<>(new WrapperToFuture<>(wrapper, RESULTSET_TO_ROW)).getImmediately();
+        final ListenableFuture<ResultSet> resultSetFuture = context.executeImmediate(bsWrapper);
+        final ListenableFuture<Row> futureRow = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+        final Row row = asyncUtils.buildInterruptible(futureRow).getImmediately();
         return rowToLongFunction(CQL_COUNTER_VALUE).apply(row);
     }
 
@@ -197,15 +204,14 @@ public class DaoContext {
         context.pushCounterStatement(bsWrapper);
     }
 
-    public WrapperToFuture<Row> getClusteredCounter(DaoOperations context) {
+    public ListenableFuture<Row> getClusteredCounter(DaoOperations context) {
         log.debug("Get clustered counter for PersistenceContext '{}'", context);
         EntityMeta entityMeta = context.getEntityMeta();
         PreparedStatement ps = clusteredCounterQueryMap.get(entityMeta.getEntityClass()).get(SELECT).get(SELECT_ALL.name());
         ConsistencyLevel consistencyLevel = overrider.getReadLevel(context);
         BoundStatementWrapper bsWrapper = binder.bindForClusteredCounterSelect(context, ps, consistencyLevel);
-
-        final ResultSetFutureWrapper wrapper = context.executeImmediate(bsWrapper);
-        return new WrapperToFuture<>(wrapper, RESULTSET_TO_ROW);
+        final ListenableFuture<ResultSet> resultSetFuture = context.executeImmediate(bsWrapper);
+        return asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
     }
 
     public Long getClusteredCounterColumn(DaoOperations context, PropertyMeta counterMeta) {
@@ -216,8 +222,9 @@ public class DaoContext {
         ConsistencyLevel readLevel = overrider.getReadLevel(context, counterMeta);
         BoundStatementWrapper bsWrapper = binder.bindForClusteredCounterSelect(context, ps, readLevel);
 
-        final ResultSetFutureWrapper wrapper = context.executeImmediate(bsWrapper);
-        final Row row = new AchillesFuture<>(new WrapperToFuture<>(wrapper, RESULTSET_TO_ROW)).getImmediately();
+        final ListenableFuture<ResultSet> resultSetFuture = context.executeImmediate(bsWrapper);
+        final ListenableFuture<Row> futureRow = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+        final Row row = asyncUtils.buildInterruptible(futureRow).getImmediately();
         return rowToLongFunction(counterColumnName).apply(row);
     }
 
@@ -228,26 +235,26 @@ public class DaoContext {
         context.pushCounterStatement(bsWrapper);
     }
 
-    public WrapperToFuture<Row> loadEntity(DaoOperations context) {
+    public ListenableFuture<Row> loadEntity(DaoOperations context) {
         log.debug("Load entity for PersistenceContext '{}'", context);
 
         Class<?> entityClass = context.getEntityClass();
         PreparedStatement ps = selectPSs.get(entityClass);
 
-        final ResultSetFutureWrapper wrapper = executeReadWithConsistency(context, ps);
-        return new WrapperToFuture<>(wrapper, RESULTSET_TO_ROW);
+        final ListenableFuture<ResultSet> resultSetFuture = executeReadWithConsistency(context, ps);
+        return asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
 
     }
 
-    private ResultSetFutureWrapper executeReadWithConsistency(DaoOperations context, PreparedStatement ps) {
+    private ListenableFuture<ResultSet> executeReadWithConsistency(DaoOperations context, PreparedStatement ps) {
         ConsistencyLevel readLevel = overrider.getReadLevel(context);
         BoundStatementWrapper bsWrapper = binder.bindStatementWithOnlyPKInWhereClause(context, ps, readLevel);
         return context.executeImmediate(bsWrapper);
     }
 
 
-    public ResultSetFutureWrapper execute(AbstractStatementWrapper statementWrapper) {
-        return statementWrapper.executeAsync(session);
+    public ListenableFuture<ResultSet> execute(AbstractStatementWrapper statementWrapper) {
+        return statementWrapper.executeAsync(session, executorService);
     }
 
     public PreparedStatement prepare(RegularStatement statement) {
@@ -299,5 +306,9 @@ public class DaoContext {
 
     void setCacheManager(CacheManager cacheManager) {
         this.cacheManager = cacheManager;
+    }
+
+    void setExecutorService(ExecutorService executorService) {
+        this.executorService = executorService;
     }
 }

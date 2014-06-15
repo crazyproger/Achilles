@@ -15,10 +15,8 @@
  */
 package info.archinnov.achilles.query.typed;
 
-import static com.google.common.util.concurrent.Futures.transform;
 import static info.archinnov.achilles.internal.async.AsyncUtils.RESULTSET_TO_ROW;
 import static info.archinnov.achilles.internal.async.AsyncUtils.RESULTSET_TO_ROWS;
-import static info.archinnov.achilles.internal.async.AsyncUtils.maybeAddAsyncListeners;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -27,6 +25,7 @@ import java.util.Map.Entry;
 import java.util.concurrent.ExecutorService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Row;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
@@ -34,7 +33,7 @@ import com.google.common.util.concurrent.FutureCallback;
 import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.async.AchillesFuture;
 import info.archinnov.achilles.interceptor.Event;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.context.ConfigurationContext;
 import info.archinnov.achilles.internal.context.DaoContext;
 import info.archinnov.achilles.internal.context.PersistenceContext;
@@ -61,6 +60,7 @@ public class TypedQuery<T> {
 
     private EntityMapper mapper = new EntityMapper();
     private EntityProxifier proxifier = new EntityProxifier();
+    private AsyncUtils asyncUtils = new AsyncUtils();
 
     public TypedQuery(Class<T> entityClass, DaoContext daoContext, ConfigurationContext configContext, String queryString, EntityMeta meta,
             PersistenceContextFactory contextFactory, boolean managed, boolean shouldNormalizeQuery,
@@ -108,7 +108,8 @@ public class TypedQuery<T> {
         log.debug("Get results asynchronously for typed query '{}'", normalizedQuery);
 
         final SimpleStatementWrapper statementWrapper = new SimpleStatementWrapper(normalizedQuery, encodedBoundValues, NO_LISTENER);
-        final WrapperToFuture<List<Row>> wrapperToFuture = new WrapperToFuture<>(daoContext.execute(statementWrapper), RESULTSET_TO_ROWS);
+        final ListenableFuture<ResultSet> resultSetFuture = daoContext.execute(statementWrapper);
+        final ListenableFuture<List<Row>> futureRows = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROWS);
 
         Function<List<Row>, List<T>> rowsToEntities = new Function<List<Row>, List<T>>() {
             @Override
@@ -153,12 +154,14 @@ public class TypedQuery<T> {
             }
         };
 
-        final ListenableFuture<List<T>> rawEntities = transform(wrapperToFuture, rowsToEntities, executorService);
-        final ListenableFuture<List<T>> entitiesWithTriggers = transform(rawEntities, applyTriggers, executorService);
+        final ListenableFuture<List<T>> rawEntities = asyncUtils.transformFuture(futureRows, rowsToEntities);
+        final ListenableFuture<List<T>> entitiesWithTriggers = asyncUtils.transformFuture(rawEntities, applyTriggers);
 
-        maybeAddAsyncListeners(entitiesWithTriggers, asyncListeners, executorService);
+        asyncUtils.maybeAddAsyncListeners(entitiesWithTriggers, asyncListeners, executorService);
 
-        return new AchillesFuture<>(transform(entitiesWithTriggers, maybeCreateProxy, executorService));
+        final ListenableFuture<List<T>> maybeProxyCreated = asyncUtils.transformFuture(entitiesWithTriggers, maybeCreateProxy);
+
+        return asyncUtils.buildInterruptible(maybeProxyCreated);
     }
 
     /**
@@ -188,7 +191,9 @@ public class TypedQuery<T> {
         log.debug("Get first result asynchronously for typed query '{}'", normalizedQuery);
 
         final SimpleStatementWrapper statementWrapper = new SimpleStatementWrapper(normalizedQuery, encodedBoundValues, NO_LISTENER);
-        final WrapperToFuture<Row> wrapperToFuture = new WrapperToFuture<>(daoContext.execute(statementWrapper), RESULTSET_TO_ROW);
+        final ListenableFuture<ResultSet> resultSetFuture = daoContext.execute(statementWrapper);
+        final ListenableFuture<Row> futureRow = asyncUtils.transformFuture(resultSetFuture, RESULTSET_TO_ROW);
+
         Function<Row, T> rowToEntity = new Function<Row, T>() {
             @Override
             public T apply(Row row) {
@@ -221,12 +226,14 @@ public class TypedQuery<T> {
             }
         };
 
-        final ListenableFuture<T> rawEntity = transform(wrapperToFuture, rowToEntity, executorService);
-        final ListenableFuture<T> entityWithTriggers = transform(rawEntity, applyTriggers, executorService);
+        final ListenableFuture<T> rawEntity = asyncUtils.transformFuture(futureRow, rowToEntity);
+        final ListenableFuture<T> entityWithTriggers = asyncUtils.transformFuture(rawEntity, applyTriggers);
 
-        maybeAddAsyncListeners(entityWithTriggers, asyncListeners, executorService);
+        asyncUtils.maybeAddAsyncListeners(entityWithTriggers, asyncListeners, executorService);
 
-        return new AchillesFuture<>(transform(entityWithTriggers, maybeCreateProxy, executorService));
+        final ListenableFuture<T> maybeProxyCreated = asyncUtils.transformFuture(entityWithTriggers, maybeCreateProxy);
+
+        return asyncUtils.buildInterruptible(maybeProxyCreated);
     }
 
     private Map<String, PropertyMeta> transformPropertiesMap(EntityMeta meta) {

@@ -18,16 +18,17 @@ package info.archinnov.achilles.internal.context;
 import java.util.ArrayList;
 import java.util.List;
 import com.datastax.driver.core.BatchStatement;
+import com.datastax.driver.core.ResultSet;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.interceptor.Event;
-import info.archinnov.achilles.internal.async.Empty;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
-import info.archinnov.achilles.internal.async.WrapperToFuture;
+import info.archinnov.achilles.internal.async.AsyncUtils;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.statement.wrapper.AbstractStatementWrapper;
 import info.archinnov.achilles.internal.statement.wrapper.BatchStatementWrapper;
 import info.archinnov.achilles.type.ConsistencyLevel;
 
 public abstract class AbstractFlushContext {
+    protected AsyncUtils asyncUtils = new AsyncUtils();
     protected DaoContext daoContext;
 
     protected List<AbstractStatementWrapper> statementWrappers = new ArrayList<>();
@@ -47,11 +48,11 @@ public abstract class AbstractFlushContext {
         this.consistencyLevel = consistencyLevel;
     }
 
-    protected ResultSetFutureWrapper executeBatch(BatchStatement.Type batchType, List<AbstractStatementWrapper> statementWrappers) {
+    protected ListenableFuture<ResultSet> executeBatch(BatchStatement.Type batchType, List<AbstractStatementWrapper> statementWrappers) {
         if (statementWrappers.size() > 1) {
             final BatchStatementWrapper batchStatementWrapper = new BatchStatementWrapper(batchType, statementWrappers);
             return daoContext.execute(batchStatementWrapper);
-        } else if (statementWrappers.size() == 1) {
+        } else {
             AbstractStatementWrapper wrapper;
             if (batchType == BatchStatement.Type.LOGGED) {
                 wrapper = new BatchStatementWrapper(batchType, statementWrappers);
@@ -59,8 +60,6 @@ public abstract class AbstractFlushContext {
                 wrapper = statementWrappers.get(0);
             }
             return daoContext.execute(wrapper);
-        } else {
-            return ResultSetFutureWrapper.emptyWrapper();
         }
 
     }
@@ -73,7 +72,7 @@ public abstract class AbstractFlushContext {
         counterStatementWrappers.add(statementWrapper);
     }
 
-    public ResultSetFutureWrapper execute(AbstractStatementWrapper statementWrapper) {
+    public ListenableFuture<ResultSet> execute(AbstractStatementWrapper statementWrapper) {
         return daoContext.execute(statementWrapper);
     }
 
@@ -87,9 +86,9 @@ public abstract class AbstractFlushContext {
 
     public abstract void startBatch();
 
-    public abstract ResultSetFutureWrapper flush();
+    public abstract ListenableFuture<List<ResultSet>> flush();
 
-    public abstract WrapperToFuture<Empty> flushBatch();
+    public abstract ListenableFuture<List<ResultSet>> flushBatch();
 
     public abstract FlushType type();
 

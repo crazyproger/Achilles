@@ -324,6 +324,8 @@ public class AsyncBatchModeIT {
         batchEm.persist(tweet2);
         batchEm.flushBatch();
         logAsserter.assertConsistencyLevels(ONE, ONE);
+
+        assertThat(successSpy.get()).isEqualTo(Empty.INSTANCE);
     }
 
     @Test

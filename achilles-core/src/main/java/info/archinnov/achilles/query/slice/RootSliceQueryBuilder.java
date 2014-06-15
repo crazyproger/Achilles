@@ -165,7 +165,7 @@ public abstract class RootSliceQueryBuilder<T> {
     protected AchillesFuture<List<T>> asyncGet() {
         log.trace("Get {} results from slice query asynchronously", limit);
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.getAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncGet(clusteredQuery);
     }
 
     protected List<T> get(int limit) {
@@ -178,7 +178,7 @@ public abstract class RootSliceQueryBuilder<T> {
         this.limit = limit;
         limitHasBeenSet = true;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.getAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncGet(clusteredQuery);
     }
 
     protected T getFirstMatching(Object... clusteringComponents) {
@@ -195,7 +195,7 @@ public abstract class RootSliceQueryBuilder<T> {
         limit = 1;
         limitHasBeenSet = true;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        final AchillesFuture<List<T>> achillesFuture = sliceQueryExecutor.getAsync(clusteredQuery);
+        final AchillesFuture<List<T>> achillesFuture = sliceQueryExecutor.asyncGet(clusteredQuery);
 
         return new AchillesFuture<>(Futures.transform(achillesFuture, takeFirstFunction, sliceQueryExecutor.getExecutorService()));
     }
@@ -214,7 +214,7 @@ public abstract class RootSliceQueryBuilder<T> {
         this.limit = limit;
         limitHasBeenSet = true;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.getAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncGet(clusteredQuery);
     }
 
     protected T getLastMatching(Object... clusteringComponents) {
@@ -233,7 +233,7 @@ public abstract class RootSliceQueryBuilder<T> {
         limitHasBeenSet = true;
         ordering = OrderingMode.DESCENDING;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        final AchillesFuture<List<T>> achillesFuture = sliceQueryExecutor.getAsync(clusteredQuery);
+        final AchillesFuture<List<T>> achillesFuture = sliceQueryExecutor.asyncGet(clusteredQuery);
 
         return new AchillesFuture<>(Futures.transform(achillesFuture, takeFirstFunction, sliceQueryExecutor.getExecutorService()));
     }
@@ -254,7 +254,7 @@ public abstract class RootSliceQueryBuilder<T> {
         limitHasBeenSet = true;
         ordering = OrderingMode.DESCENDING;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.getAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncGet(clusteredQuery);
     }
 
     protected Iterator<T> iterator() {
@@ -265,7 +265,7 @@ public abstract class RootSliceQueryBuilder<T> {
     protected AchillesFuture<Iterator<T>> asyncIterator() {
         log.trace("Asynchronous result iterator from slice query with fetch size {}", limit);
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.iteratorAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncIterator(clusteredQuery);
     }
 
     protected Iterator<T> iteratorWithMatching(Object... clusteringComponents) {
@@ -279,7 +279,7 @@ public abstract class RootSliceQueryBuilder<T> {
         toClusteringsInternal(clusteringComponents);
 
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.iteratorAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncIterator(clusteredQuery);
     }
 
     protected Iterator<T> iterator(int fetchSize) {
@@ -291,7 +291,7 @@ public abstract class RootSliceQueryBuilder<T> {
         log.trace("Asynchronous result iterator from slice query with fetch size {}", fetchSize);
         this.batchSize = fetchSize;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.iteratorAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncIterator(clusteredQuery);
     }
 
     protected Iterator<T> iteratorWithMatchingAndFetchSize(int fetchSize, Object... clusteringComponents) {
@@ -305,7 +305,7 @@ public abstract class RootSliceQueryBuilder<T> {
         toClusteringsInternal(clusteringComponents);
         this.batchSize = fetchSize;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.iteratorAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncIterator(clusteredQuery);
     }
 
     protected void remove() {
@@ -316,7 +316,7 @@ public abstract class RootSliceQueryBuilder<T> {
     protected AchillesFuture<Empty> asyncRemove() {
         log.trace("Remove asynchronously {} results from slice query", limit);
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.removeAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncRemove(clusteredQuery);
     }
 
     protected void remove(int limit) {
@@ -330,7 +330,7 @@ public abstract class RootSliceQueryBuilder<T> {
         this.limit = limit;
         limitHasBeenSet = true;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.removeAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncRemove(clusteredQuery);
     }
 
     protected void removeFirstMatching(Object... clusteringComponents) {
@@ -347,7 +347,7 @@ public abstract class RootSliceQueryBuilder<T> {
         limit = 1;
         limitHasBeenSet = true;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.removeAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncRemove(clusteredQuery);
     }
 
     protected void removeFirstMatchingWithLimit(int limit, Object... clusteringComponents) {
@@ -364,7 +364,7 @@ public abstract class RootSliceQueryBuilder<T> {
         this.limit = limit;
         limitHasBeenSet = true;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.removeAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncRemove(clusteredQuery);
     }
 
     protected void removeLastMatching(Object... clusteringComponents) {
@@ -383,7 +383,7 @@ public abstract class RootSliceQueryBuilder<T> {
         limitHasBeenSet = true;
         ordering = OrderingMode.DESCENDING;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.removeAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncRemove(clusteredQuery);
     }
 
     protected void removeLastMatchingWithLimit(int limit, Object... clusteringComponents) {
@@ -402,7 +402,7 @@ public abstract class RootSliceQueryBuilder<T> {
         limitHasBeenSet = true;
         ordering = OrderingMode.DESCENDING;
         SliceQuery<T> clusteredQuery = buildClusterQuery();
-        return sliceQueryExecutor.removeAsync(clusteredQuery);
+        return sliceQueryExecutor.asyncRemove(clusteredQuery);
     }
 
     protected SliceQuery<T> buildClusterQuery() {

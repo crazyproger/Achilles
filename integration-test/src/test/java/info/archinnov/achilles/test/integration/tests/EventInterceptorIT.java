@@ -183,12 +183,13 @@ public class EventInterceptorIT {
 
         manager.persist(entity);
 
+        assertThat(entity.getName()).isEqualTo("prePersist");
+        assertThat(entity.getLabel()).isEqualTo("postPersist");
+
         Row row = session.execute("select name,label from CompleteBean where id = " + entity.getId()).one();
 
         assertThat(row.getString("name")).isEqualTo("prePersist");
         assertThat(row.getString("label")).isEqualTo("label");
-        assertThat(entity.getName()).isEqualTo("prePersist");
-        assertThat(entity.getLabel()).isEqualTo("postPersist");
 
     }
 
@@ -244,7 +245,7 @@ public class EventInterceptorIT {
     }
 
     @Test
-    public void should_apply_interceptors_before_flush_for_batch() throws Exception {
+    public void should_apply_interceptors_after_flush_for_batch() throws Exception {
         // Given
         final BatchingPersistenceManager batchingPM = pmf.createBatchingPersistenceManager();
         batchingPM.startBatch();

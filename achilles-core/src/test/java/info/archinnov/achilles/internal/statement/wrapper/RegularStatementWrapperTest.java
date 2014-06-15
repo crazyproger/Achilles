@@ -50,7 +50,6 @@ import com.datastax.driver.core.Row;
 import com.datastax.driver.core.Session;
 import com.google.common.base.Optional;
 import info.archinnov.achilles.exception.AchillesCASException;
-import info.archinnov.achilles.internal.async.ResultSetFutureWrapper;
 import info.archinnov.achilles.internal.reflection.RowMethodInvoker;
 import info.archinnov.achilles.listener.CASResultListener;
 import info.archinnov.achilles.test.mapping.entity.CompleteBean;
@@ -58,7 +57,7 @@ import info.archinnov.achilles.test.sample.entity.Entity1;
 
 @RunWith(MockitoJUnitRunner.class)
 public class RegularStatementWrapperTest {
-
+/*
     private RegularStatementWrapper wrapper;
 
     @Mock
@@ -252,4 +251,5 @@ public class RegularStatementWrapperTest {
         //Then
 
     }
+*/
 }
