@@ -15,6 +15,7 @@
  */
 package info.archinnov.achilles.internal.context;
 
+import static com.google.common.base.Optional.fromNullable;
 import java.util.ArrayList;
 import java.util.List;
 import com.datastax.driver.core.BatchStatement;
@@ -49,19 +50,21 @@ public abstract class AbstractFlushContext {
     }
 
     protected ListenableFuture<ResultSet> executeBatch(BatchStatement.Type batchType, List<AbstractStatementWrapper> statementWrappers) {
-        if (statementWrappers.size() > 1) {
-            final BatchStatementWrapper batchStatementWrapper = new BatchStatementWrapper(batchType, statementWrappers);
-            return daoContext.execute(batchStatementWrapper);
-        } else {
+        ListenableFuture<ResultSet> resultSetFuture = null;
+        final int size = statementWrappers.size();
+        if (size > 1) {
+            final BatchStatementWrapper batchStatementWrapper = new BatchStatementWrapper(batchType, statementWrappers, fromNullable(consistencyLevel));
+            resultSetFuture = daoContext.execute(batchStatementWrapper);
+        } else if (size == 1) {
             AbstractStatementWrapper wrapper;
             if (batchType == BatchStatement.Type.LOGGED) {
-                wrapper = new BatchStatementWrapper(batchType, statementWrappers);
+                wrapper = new BatchStatementWrapper(batchType, statementWrappers, fromNullable(consistencyLevel));
             } else {
                 wrapper = statementWrappers.get(0);
             }
-            return daoContext.execute(wrapper);
+            resultSetFuture = daoContext.execute(wrapper);
         }
-
+        return resultSetFuture;
     }
 
     public void pushStatement(AbstractStatementWrapper statementWrapper) {

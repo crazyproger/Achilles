@@ -68,13 +68,6 @@ public class AsyncUtils {
         }
     };
 
-    public static final Function<ResultSet, Empty> NO_OP = new Function<ResultSet, Empty>() {
-        @Override
-        public Empty apply(ResultSet resultSet) {
-            return Empty.INSTANCE;
-        }
-    };
-
     public void maybeAddAsyncListeners(ListenableFuture<?> listenableFuture, Options options, ExecutorService executorService) {
         if (options.hasAsyncListeners()) {
             for (FutureCallback<Object> callback : options.getAsyncListeners()) {
@@ -114,7 +107,7 @@ public class AsyncUtils {
         return new AchillesFuture<>(listenableFuture);
     }
 
-    public ListenableFuture<List<ResultSet>> mergeResultSetFutures(ListenableFuture<ResultSet>... resultSetFutures) {
+    public ListenableFuture<List<ResultSet>> mergeResultSetFutures(List<ListenableFuture<ResultSet>> resultSetFutures) {
         return Futures.allAsList(resultSetFutures);
     }
 
@@ -148,8 +141,10 @@ public class AsyncUtils {
         return Futures.transform(tracingApplied, CASCheck);
     }
 
-    public void addTriggersListenerToResultSet(ListenableFuture<ResultSet> resultSetFuture, FutureCallback<ResultSet> applyTriggers) {
-        Futures.addCallback(resultSetFuture, applyTriggers);
+    public void addTriggersListenerToResultSet(List<ListenableFuture<ResultSet>> resultSetFutures, FutureCallback<ResultSet> applyTriggers) {
+        for (ListenableFuture<ResultSet> resultSetFuture : resultSetFutures) {
+            Futures.addCallback(resultSetFuture, applyTriggers);
+        }
     }
 
 

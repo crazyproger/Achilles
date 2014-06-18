@@ -93,8 +93,6 @@ public abstract class AbstractStatementWrapper {
 
     protected ListenableFuture<ResultSet> executeAsyncInternal(Session session, AbstractStatementWrapper statementWrapper, ExecutorService executorService) {
         ResultSetFuture resultSetFuture = session.executeAsync(statementWrapper.getStatement());
-        // asyncUtils.addListenerToResultSet(resultSetFuture, statementWrapper);
-
         return asyncUtils.applyLoggingTracingAndCASCheck(resultSetFuture, statementWrapper, executorService);
     }
 

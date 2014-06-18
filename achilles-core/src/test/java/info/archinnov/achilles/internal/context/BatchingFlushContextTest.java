@@ -16,12 +16,13 @@
 package info.archinnov.achilles.internal.context;
 
 import static info.archinnov.achilles.type.ConsistencyLevel.EACH_QUORUM;
+import static java.util.Arrays.asList;
 import static org.fest.assertions.api.Assertions.assertThat;
+import static org.mockito.Matchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
-import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
-import java.util.Arrays;
+import static org.mockito.Mockito.when;
 import java.util.List;
 import org.junit.Before;
 import org.junit.Test;
@@ -30,15 +31,16 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Captor;
 import org.mockito.Mock;
 import org.mockito.runners.MockitoJUnitRunner;
-import org.powermock.reflect.internal.WhiteboxImpl;
+import org.powermock.reflect.Whitebox;
 import com.datastax.driver.core.RegularStatement;
 import com.datastax.driver.core.ResultSet;
-import com.datastax.driver.core.Statement;
 import com.datastax.driver.core.querybuilder.QueryBuilder;
 import com.google.common.base.Function;
 import com.google.common.base.Optional;
+import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.interceptor.Event;
-import info.archinnov.achilles.internal.async.Empty;
+import info.archinnov.achilles.internal.async.AsyncUtils;
+import info.archinnov.achilles.internal.async.EmptyFutureResultSets;
 import info.archinnov.achilles.internal.context.AbstractFlushContext.FlushType;
 import info.archinnov.achilles.internal.interceptor.EventHolder;
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
@@ -52,11 +54,14 @@ import info.archinnov.achilles.type.ConsistencyLevel;
 
 @RunWith(MockitoJUnitRunner.class)
 public class BatchingFlushContextTest {
-/*
+
     private BatchingFlushContext context;
 
     @Mock
     private DaoContext daoContext;
+
+    @Mock
+    private AsyncUtils asyncUtils;
 
     @Mock
     private BoundStatementWrapper bsWrapper;
@@ -64,17 +69,30 @@ public class BatchingFlushContextTest {
     @Mock
     private RegularStatement query;
 
-    @Captor
-    private ArgumentCaptor<BatchStatementWrapper> batchCaptor;
+    @Mock
+    private ListenableFuture<ResultSet> futureResultSet1;
+
+    @Mock
+    private ListenableFuture<ResultSet> futureResultSet2;
+
+    @Mock
+    private ListenableFuture<List<ResultSet>> futureAsList;
 
     @Captor
-    private ArgumentCaptor<Function<ResultSet, Empty>> applyTriggersCaptor;
+    private ArgumentCaptor<AbstractStatementWrapper> statementWrapperCaptor;
+
+    @Captor
+    private ArgumentCaptor<List<ListenableFuture<ResultSet>>> futureResultSetsCaptor;
+
+    @Captor
+    private ArgumentCaptor<Function<List<ResultSet>, List<ResultSet>>> applyTriggersCaptor;
 
     private Optional<CASResultListener> noListener = Optional.absent();
 
     @Before
     public void setUp() {
         context = new BatchingFlushContext(daoContext, EACH_QUORUM);
+        context.asyncUtils = asyncUtils;
     }
 
     @Test
@@ -86,8 +104,9 @@ public class BatchingFlushContextTest {
     public void should_do_nothing_when_flush_is_called() throws Exception {
         context.statementWrappers.add(bsWrapper);
 
-        context.flush();
+        final ListenableFuture<List<ResultSet>> actual = context.flush();
 
+        assertThat(actual).isInstanceOf(EmptyFutureResultSets.class);
         assertThat(context.statementWrappers).containsExactly(bsWrapper);
     }
 
@@ -99,29 +118,32 @@ public class BatchingFlushContextTest {
         RegularStatement statement2 = QueryBuilder.select().from("table2");
         AbstractStatementWrapper wrapper1 = new RegularStatementWrapper(CompleteBean.class, statement1, null, com.datastax.driver.core.ConsistencyLevel.ONE, noListener);
         AbstractStatementWrapper wrapper2 = new RegularStatementWrapper(CompleteBean.class, statement2, null, com.datastax.driver.core.ConsistencyLevel.ONE, noListener);
-        context.eventHolders = Arrays.asList(eventHolder);
-        context.statementWrappers = Arrays.asList(wrapper1, wrapper2);
-        context.counterStatementWrappers = Arrays.asList(wrapper1, wrapper2);
+        AbstractStatementWrapper wrapper3 = new RegularStatementWrapper(CompleteBean.class, statement2, null, com.datastax.driver.core.ConsistencyLevel.ONE, noListener);
+        context.eventHolders = asList(eventHolder);
+        context.statementWrappers = asList(wrapper1, wrapper2);
+        context.counterStatementWrappers = asList(wrapper3);
         context.setConsistencyLevel(ConsistencyLevel.LOCAL_QUORUM);
 
+        when(daoContext.execute(statementWrapperCaptor.capture())).thenReturn(futureResultSet1, futureResultSet2);
+        when(asyncUtils.mergeResultSetFutures(futureResultSetsCaptor.capture())).thenReturn(futureAsList);
+        when(asyncUtils.transformFuture(eq(futureAsList), applyTriggersCaptor.capture())).thenReturn(futureAsList);
+
         //When
-        final WrapperToFuture<Empty> emptyWrapper = context.flushBatch();
+        final ListenableFuture<List<ResultSet>> futureResultSets = context.flushBatch();
 
         //Then
+        assertThat(futureResultSets).isSameAs(futureAsList);
+        assertThat(futureResultSetsCaptor.getValue()).containsExactly(futureResultSet1, futureResultSet2);
+
+        final List<AbstractStatementWrapper> wrappers = statementWrapperCaptor.getAllValues();
+        BatchStatementWrapper batchWrapper = (BatchStatementWrapper) wrappers.get(0);
+        assertThat(Whitebox.<List<AbstractStatementWrapper>>getInternalState(batchWrapper, "statementWrappers")).containsExactly(wrapper1, wrapper2);
+        assertThat(wrappers.get(1)).isSameAs(wrapper3);
+
+        final Function<List<ResultSet>, List<ResultSet>> applyTriggers = applyTriggersCaptor.getValue();
+        applyTriggers.apply(asList(mock(ResultSet.class)));
+
         verify(eventHolder).triggerInterception();
-        verify(daoContext, times(2)).execute(batchCaptor.capture());
-
-        assertThat(batchCaptor.getAllValues()).hasSize(2);
-
-        final BatchStatementWrapper batchStatement1 = batchCaptor.getAllValues().get(0);
-        assertThat(batchStatement1.getConsistencyLevel()).isSameAs(ConsistencyLevel.LOCAL_QUORUM);
-        final List<Statement> statements1 = WhiteboxImpl.getInternalState(batchStatement1, "statements");
-        assertThat(statements1).contains(statement1, statement2);
-
-        final BatchStatementWrapper batchStatement2 = batchCaptor.getAllValues().get(1);
-        assertThat(batchStatement1.getConsistencyLevel()).isSameAs(ConsistencyLevel.LOCAL_QUORUM);
-        final List<Statement> statements2 = WhiteboxImpl.getInternalState(batchStatement2, "statements");
-        assertThat(statements2).contains(statement1, statement2);
     }
 
     @Test
@@ -183,5 +205,5 @@ public class BatchingFlushContextTest {
         assertThat(newContext.eventHolders).isEmpty();
 
     }
-*/
+
 }

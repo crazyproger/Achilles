@@ -25,6 +25,7 @@ import com.datastax.driver.core.ResultSet;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.Statement;
 import com.google.common.base.Joiner;
+import com.google.common.base.Optional;
 import com.google.common.util.concurrent.ListenableFuture;
 import info.archinnov.achilles.type.ConsistencyLevel;
 
@@ -32,13 +33,14 @@ public class BatchStatementWrapper extends AbstractStatementWrapper {
 
     private BatchStatement.Type batchType;
     private List<AbstractStatementWrapper> statementWrappers;
+    private Optional<ConsistencyLevel> consistencyLevelO;
     private BatchStatement batchStatement;
-    private ConsistencyLevel consistencyLevel;
 
-    public BatchStatementWrapper(BatchStatement.Type batchType, List<AbstractStatementWrapper> statementWrappers) {
+    public BatchStatementWrapper(BatchStatement.Type batchType, List<AbstractStatementWrapper> statementWrappers, Optional<ConsistencyLevel> consistencyLevelO) {
         super(null, null);
         this.batchType = batchType;
         this.statementWrappers = statementWrappers;
+        this.consistencyLevelO = consistencyLevelO;
         this.batchStatement = createBatchStatement(batchType, statementWrappers);
     }
 
@@ -52,6 +54,9 @@ public class BatchStatementWrapper extends AbstractStatementWrapper {
         }
         if (tracingEnabled) {
             batch.enableTracing();
+        }
+        if (consistencyLevelO.isPresent()) {
+            batch.setConsistencyLevel(getCQLLevel(consistencyLevelO.get()));
         }
         return batch;
     }
@@ -85,16 +90,12 @@ public class BatchStatementWrapper extends AbstractStatementWrapper {
             statementWrapper.logDMLStatement(indentation);
         }
         if (dmlLogger.isDebugEnabled() || batchStatement.isTracing()) {
+            ConsistencyLevel consistencyLevel = consistencyLevelO.isPresent() ? consistencyLevelO.get() : null;
             AbstractStatementWrapper.writeDMLEndBatch(batchType, consistencyLevel);
         }
     }
 
-    public void setConsistencyLevel(ConsistencyLevel consistencyLevel) {
-        this.consistencyLevel = consistencyLevel;
-        this.batchStatement.setConsistencyLevel(getCQLLevel(consistencyLevel));
-    }
-
     public ConsistencyLevel getConsistencyLevel() {
-        return consistencyLevel;
+        return consistencyLevelO.get();
     }
 }
