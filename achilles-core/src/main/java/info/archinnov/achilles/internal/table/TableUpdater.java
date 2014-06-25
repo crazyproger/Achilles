@@ -1,27 +1,28 @@
 package info.archinnov.achilles.internal.table;
 
-import java.util.*;
-
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
-
 import com.datastax.driver.core.ColumnMetadata;
 import com.datastax.driver.core.Session;
 import com.datastax.driver.core.TableMetadata;
 import com.google.common.base.Function;
 import com.google.common.base.Predicate;
+import com.google.common.base.Strings;
 import com.google.common.collect.Collections2;
 import com.google.common.collect.Maps;
-
 import info.archinnov.achilles.internal.metadata.holder.EntityMeta;
 import info.archinnov.achilles.internal.metadata.holder.IndexProperties;
 import info.archinnov.achilles.internal.metadata.holder.PropertyMeta;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import java.util.*;
+
+import static info.archinnov.achilles.internal.table.TableCreator.ACHILLES_DDL_SCRIPT;
 
 public class TableUpdater {
-	private static final Logger log = LoggerFactory.getLogger(TableUpdater.class);
+    private static final Logger log = LoggerFactory.getLogger(ACHILLES_DDL_SCRIPT);
 
-	public void updateTableForEntity(Session session, EntityMeta entityMeta, TableMetadata tableMetadata) {
-		log.debug("Updating table for entityMeta {}", entityMeta.getClassName());
+    public void updateTableForEntity(Session session, EntityMeta entityMeta, TableMetadata tableMetadata) {
+        log.debug("Updating table for entityMeta {}", entityMeta.getClassName());
 
 		if (!entityMeta.isSchemaUpdateEnabled()) {
 			return;
@@ -36,11 +37,16 @@ public class TableUpdater {
 		addNewPropertiesToBuilder(propertyMetas, columnNames, builder);
 
 		addNewIndexesToBuilder(existsColumns, propertyMetas, builder);
-		session.execute(builder.generateDDLScript());
-		if (builder.hasIndices()) {
-			for (String indexScript : builder.generateIndices()) {
-				session.execute(indexScript);
-			}
+        String script = builder.generateDDLScript();
+        if (!Strings.isNullOrEmpty(script.trim())) {
+            log.debug(script);
+            session.execute(script);
+        }
+        if (builder.hasIndices()) {
+            for (String indexScript : builder.generateIndices()) {
+                log.debug(indexScript);
+                session.execute(indexScript);
+            }
 		}
 	}
 
